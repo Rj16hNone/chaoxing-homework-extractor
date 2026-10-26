@@ -1037,10 +1037,14 @@ class App:
         self._row_tasks = {}
         for i, (st, t) in enumerate(self._visible_tasks()):
             status = t.get("status") or ""
-            if t.get("exam_status") and t["exam_status"] != "进行中":
-                status = (status + " · " + t["exam_status"]).strip(" ·")
+            exam_st = t.get("exam_status") or ""
+            # exam_status 与 status 相同时（如都写「已交卷」）不要重复拼接
+            if exam_st and exam_st != "进行中" and exam_st not in status:
+                status = (status + " · " + exam_st).strip(" ·")
             if st == cx.STATE_OVERDUE:
-                show = "超时未交" if status in ("", "未交", "未完成") else status + "·超时"
+                # 这一块的语义就是「到期未交」，状态列统一写清楚即可；
+                # 原来把原状态和 exam_status 拼在后面（如「未交 · 已结束·超时」）又长又乱。
+                show = "超时未交"
                 tag = "overdue"
             elif st == cx.STATE_DONE:
                 show = status or "已完成"
