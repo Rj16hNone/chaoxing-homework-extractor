@@ -21,6 +21,7 @@ NAME = "超星作业提取"
 FILES = [
     NAME + ".exe",
     "README.md",
+    "LICENSE",
     "docs/preview.png",
     "build_exe.bat",
     "make_zip.py",
