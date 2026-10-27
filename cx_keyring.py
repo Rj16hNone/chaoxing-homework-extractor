@@ -4,20 +4,20 @@
 密钥环（主密钥 + 解锁槽位）
 ==============================
 设计目标：
-  - Cookie 会话与硬件成员名单都由同一把 **主密钥(MK)** 加密；
+  - Cookie 会话与设备记录都由同一把 **主密钥(MK)** 加密；
   - MK 本身不落盘明文，而是被「解锁槽位」包裹：
-      槽位 A：U 盘 —— 密钥材料 = 本机指纹 + U 盘原始序列号
-      槽位 B：备份钥匙文件 —— 一个可复制到任何位置的独立文件（用口令保护）
-  - 没有 U 盘、也没有备份钥匙，就拿不到 MK，两份数据都无法解密。
+      槽位 A：设备 —— 密钥材料 = 本机标识 + 设备原始序列号
+      槽位 B：恢复密钥文件 —— 一个可复制到任何位置的独立文件（用口令保护）
+  - 没有设备、也没有恢复密钥，就拿不到 MK，两份数据都无法解密。
   - 例外（写入方向）：**创建 / 更新** Cookie 文件不需要任何解锁权限 ——
       未解锁时改用「机器绑定派生密钥」(provisional_key) 加密落盘；
       下次解锁后再读取，会自动重加密为正式的 Cookie 子密钥（见 cx_vault）。
       读取方向仍然必须解锁，因此这个例外不会让人在没有钥匙时看到 Cookie。
-  - CookieKey：**独立的 32 字节随机密钥**，每台电脑只能创建一次，创建不需要 U 盘。
+  - CookieKey：**独立的 32 字节随机密钥**，每台电脑只能创建一次，创建不需要设备。
       存在 CookieKey 时，Cookie 文件一律用它加密（优先级高于主密钥派生）。
-      该文件与本机指纹绑定（v3），只在创建它的电脑上可用；可在本机任意复制换目录。
+      该文件与本机标识绑定（v3），只在创建它的电脑上可用；可在本机任意复制换目录。
 
-备份钥匙文件（可移植）：
+恢复密钥文件（可移植）：
   文件内只有「用口令派生密钥包裹的 MK」，不含任何本机信息，
   因此可以放在任意文件夹 / 网盘 / 另一台电脑上，只要记得口令即可解封。
 """
@@ -31,7 +31,7 @@ import datetime
 
 import cx_crypto
 import cx_guard
-import cx_hwid
+import cx_env
 
 DIR_NAME = "device"
 STORE_FILE = "keys.dat"
@@ -41,7 +41,7 @@ BACKUP_VER_NOPASS = 2    # 无口令：文件本身即钥匙
 COOKIE_KEY_NAME = "CookieKey"
 COOKIE_KEY_MAGIC = b"CXCK1\x00"
 COOKIE_KEY_VER_STANDALONE = 2     # v2：独立随机密钥（旧版，未绑机器）
-COOKIE_KEY_VER_MACHINE = 3        # v3：绑本机指纹，复制到别的电脑无法解封
+COOKIE_KEY_VER_MACHINE = 3        # v3：绑本机标识，复制到别的电脑无法解封
 COOKIE_KEY_MARK = ".cookiekey.lock"   # 记录「本机已创建过」，保证只能创建一次
 CK_HOME = "keys"                      # CookieKey 的统一存放文件夹（程序只扫描这里）
 MASTER_LEN = 32
@@ -106,7 +106,7 @@ def _unwrap(slot, material):
         return None
 
 
-def _usb_material(hw_id):
+def _dev_material(hw_id):
     return cx_crypto.hmac_sha256(cx_guard.machine_secret(), b"cx.keyring.usb.v1" + hw_id.encode("utf-8"))
 
 
@@ -146,7 +146,7 @@ def master():
     return _mk
 
 
-def unlocked():
+def ready():
     return _mk is not None
 
 
@@ -155,7 +155,7 @@ def source():
 
 
 def access_level():
-    """full=U盘/备份钥匙；cookie=仅有 CookieKey（受限）；none=未解锁。"""
+    """full=设备/恢复密钥；cookie=仅有 CookieKey（受限）；none=未解锁。"""
     if _mk is not None:
         return "full"
     if _ck is not None:
@@ -178,8 +178,8 @@ def cookie_key():
     return None
 
 
-def members_key():
-    """硬件成员子密钥：只能由主密钥派生（CookieKey 拿不到）。"""
+def profile_key():
+    """设备记录子密钥：只能由主密钥派生（CookieKey 拿不到）。"""
     return _subkey(b"members.v1") if _mk is not None else None
 
 
@@ -193,7 +193,7 @@ _PROVISIONAL_LABEL = b"cx.subkey.cookie.machine.v1"
 
 
 def provisional_key():
-    """机器绑定派生密钥：不需要 U 盘、也不需要 CookieKey 即可得到。
+    """机器绑定派生密钥：不需要设备、也不需要 CookieKey 即可得到。
 
     唯一用途是「还没解锁时也能把登录状态加密落盘」。它是单向派生、不可反推主密钥，
     但同一台电脑、同一个系统账户下可以被重新推导出来，强度明显低于主密钥派生，
@@ -229,12 +229,12 @@ def write_tier():
 
 
 def cookie_writable():
-    """创建 / 更新加密 Cookie 文件：任何状态都允许，无需 U 盘，也无需 CookieKey。"""
+    """创建 / 更新加密 Cookie 文件：任何状态都允许，无需设备，也无需 CookieKey。"""
     return True
 
 
 def cookie_readable():
-    """读取已保存的 Cookie 是否允许：需要解锁（管理 U 盘 / 备份钥匙 / CookieKey）。"""
+    """读取已保存的 Cookie 是否允许：需要解锁（管理设备 / 恢复密钥 / CookieKey）。"""
     return access_level() != "none"
 
 
@@ -256,7 +256,7 @@ def set_master(mk, src):
     _ck = None
     _ck_source = ""
     # keys/ 文件夹里若有 CookieKey，仍然优先用它加密：
-    # 这样即使插着 U 盘解锁，写出的 Cookie 文件也能被 CookieKey 读回
+    # 这样即使插着设备解锁，写出的 Cookie 文件也能被 CookieKey 读回
     #（CookieKey 与本机绑定，本机复制后仍可用）。
     p = find_cookie_key()
     if p:
@@ -267,7 +267,7 @@ def registered_display(base_dir=None):
     st = _read_store(base_dir)
     if not st:
         return ""
-    return "管理 U 盘"      # 不显示具体型号/盘符
+    return "管理设备"      # 不显示具体型号/盘符
 
 
 def state(base_dir=None, devices=None):
@@ -277,62 +277,62 @@ def state(base_dir=None, devices=None):
         return {"state": "unregistered", "device": None, "display": ""}
 
     usb = st.get("usb") or {}
-    devs = cx_hwid.list_usb_devices() if devices is None else devices
+    devs = cx_env.scan_devices() if devices is None else devices
     match = next((d for d in devs if d.get("fp") == usb.get("fp")), None)
 
     if match and _mk is None:
-        try_unlock_usb([match], base_dir=base_dir)
+        try_unlock_device([match], base_dir=base_dir)
     if _mk is not None:
-        return {"state": "open", "device": match, "display": "管理 U 盘",
+        return {"state": "open", "device": match, "display": "管理设备",
                 "source": _mk_source}
-    return {"state": "locked", "device": match, "display": "管理 U 盘"}
+    return {"state": "locked", "device": match, "display": "管理设备"}
 
 
-# ------------------------------------------------------------------ 注册 / 解锁
-def register_usb(device, base_dir=None):
-    """把 U 盘登记为解锁槽位。若已有主密钥则沿用，否则新建（旧名单会被重置）。"""
+# ------------------------------------------------------------------ 登记 / 解锁
+def register_device(device, base_dir=None):
+    """把设备登记为解锁槽位。若已有主密钥则沿用，否则新建（旧名单会被重置）。"""
     if not device or not device.get("hw_id"):
-        return False, "没有可注册的 U 盘"
+        return False, "没有可登记的设备"
 
     st = _read_store(base_dir)
     mk = _mk
     if mk is None and st:
-        # 已注册过其它 U 盘：只有当前能解锁（旧盘在场）时才沿用它
+        # 已登记过其它设备：只有当前能解锁（旧盘在场）时才沿用它
         old = (st.get("usb") or {}).get("fp")
         if old == device.get("fp"):
             slot = (st.get("usb") or {}).get("slot") or {}
-            mk = _unwrap(slot, _usb_material(device["hw_id"]))
+            mk = _unwrap(slot, _dev_material(device["hw_id"]))
 
     fresh = mk is None
     if fresh:
         mk = os.urandom(MASTER_LEN)
 
-    slot = _wrap(mk, _usb_material(device["hw_id"]))
+    slot = _wrap(mk, _dev_material(device["hw_id"]))
     data = {
         "v": 2,
         "usb": {
             "fp": device["fp"],
-            "display": "管理 U 盘",     # 不记录/显示具体型号与盘符
+            "display": "管理设备",     # 不记录/显示具体型号与盘符
             "slot": slot,
         },
         "created": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     _write_store(data, base_dir)
     set_master(mk, "usb")
-    return True, ("已注册" if not fresh else "已注册（新建主密钥）")
+    return True, ("已登记" if not fresh else "已登记（新建主密钥）")
 
 
-def try_unlock_usb(devices=None, base_dir=None):
-    """尝试用当前 U 盘解封主密钥。"""
+def try_unlock_device(devices=None, base_dir=None):
+    """尝试用当前设备解封主密钥。"""
     st = _read_store(base_dir)
     if not st:
         return False
     usb = st.get("usb") or {}
-    devs = cx_hwid.list_usb_devices() if devices is None else devices
+    devs = cx_env.scan_devices() if devices is None else devices
     for d in devs:
         if d.get("fp") != usb.get("fp"):
             continue
-        mk = _unwrap(usb.get("slot") or {}, _usb_material(d["hw_id"]))
+        mk = _unwrap(usb.get("slot") or {}, _dev_material(d["hw_id"]))
         if mk:
             set_master(mk, "usb")
             return True
@@ -343,9 +343,9 @@ def try_unlock_usb(devices=None, base_dir=None):
 # 定位：**独立的 Cookie 钥匙**，不再从主密钥派生。
 #   · 统一放在程序目录下的 keys/ 文件夹里，程序只扫描这一个文件夹；
 #   · 每台电脑必须且只能创建一次（建完写标记文件，之后拒绝再建）；
-#   · v3 起与**本机指纹**绑定：文件只在这台电脑上能解，复制到别的电脑等于废文件；
+#   · v3 起与**本机标识**绑定：文件只在这台电脑上能解，复制到别的电脑等于废文件；
 #     同一台电脑上可以随意复制（放回 keys/ 即可）；
-#   · 创建不需要 U 盘，也不需要任何解锁权限。
+#   · 创建不需要设备，也不需要任何解锁权限。
 def ck_home_dir(base_dir=None):
     """CookieKey 的存放文件夹（默认 <程序目录>/keys）。"""
     return os.path.join(_app_dir() if base_dir is None else base_dir, CK_HOME)
@@ -414,7 +414,7 @@ def _ck_kdf(salt):
 
 
 def _ck_kdf_machine(salt):
-    """v3 包裹密钥：掺入本机指纹，换台电脑就解不出密钥。"""
+    """v3 包裹密钥：掺入本机标识，换台电脑就解不出密钥。"""
     mat = cx_guard.machine_secret()
     return (cx_crypto.hmac_sha256(mat, b"cx.ck.m1" + salt)
             + cx_crypto.hmac_sha256(mat, b"cx.ck.m2" + salt))
@@ -546,7 +546,7 @@ def cookie_key_state(path=None):
 def create_cookie_key(path=None):
     """创建 CookieKey：独立的 32 字节随机密钥，每台电脑只能创建一次。
 
-    落盘格式为 v3：用「本机指纹」包裹密钥，因此该文件只在创建它的这台电脑上可用。
+    落盘格式为 v3：用「本机标识」包裹密钥，因此该文件只在创建它的这台电脑上可用。
     """
     if path is None:
         migrate_layout()               # 旧布局先搬进 keys/
@@ -667,7 +667,7 @@ def auto_cookie_key(path=None):
     """没有完整权限时，现场探测一次 CookieKey。
 
     「已保存的登录状态」只依赖 CookieKey：只要探到就可以直接使用，
-    不需要插 U 盘、也不需要备份钥匙。只在 keys/ 文件夹里查找。
+    不需要插设备、也不需要恢复密钥。只在 keys/ 文件夹里查找。
     """
     if access_level() != "none":
         return access_level() == "cookie"
@@ -688,9 +688,9 @@ def refresh_cookie_key(path=None):
     return auto_cookie_key(path)
 
 
-# ------------------------------------------------------------------ 备份钥匙
+# ------------------------------------------------------------------ 恢复密钥
 def _backup_kdf(passphrase, salt):
-    """备份钥匙的包裹密钥：有口令用 PBKDF2，无口令用固定派生（文件即钥匙）。"""
+    """恢复密钥的包裹密钥：有口令用 PBKDF2，无口令用固定派生（文件即钥匙）。"""
     if passphrase:
         return hashlib.pbkdf2_hmac("sha256", passphrase.encode("utf-8"), salt, PBKDF2_ROUNDS, 64)
     return (hashlib.sha256(b"cx.bak.nopass.1" + salt).digest()
@@ -698,9 +698,9 @@ def _backup_kdf(passphrase, salt):
 
 
 def create_backup(path, passphrase, base_dir=None):
-    """生成可移植的备份钥匙文件（需先解锁）。passphrase 为空表示不设口令。"""
+    """生成可移植的恢复密钥文件（需先解锁）。passphrase 为空表示不设口令。"""
     if _mk is None:
-        return False, "请先插入管理 U 盘解锁"
+        return False, "请先插入管理设备解锁"
     salt = os.urandom(SALT_LEN)
     enc, mac = (lambda dk: (dk[:32], dk[32:]))(_backup_kdf(passphrase or "", salt))
     nonce = os.urandom(12)
@@ -713,17 +713,17 @@ def create_backup(path, passphrase, base_dir=None):
             f.write(blob)
     except OSError as e:
         return False, "写入失败：%s" % e
-    return True, "备份钥匙已生成"
+    return True, "恢复密钥已生成"
 
 
 def unlock_with_backup(path, passphrase, base_dir=None):
-    """用备份钥匙文件解封主密钥（可在任意路径使用）。"""
+    """用恢复密钥文件解封主密钥（可在任意路径使用）。"""
     try:
         blob = open(path, "rb").read()
     except OSError as e:
         return False, "无法读取文件：%s" % e
     if not blob.startswith(BACKUP_MAGIC):
-        return False, "这不是本程序的备份钥匙文件"
+        return False, "这不是本程序的恢复密钥文件"
     ver = blob[len(BACKUP_MAGIC)]
     if ver not in (BACKUP_VER_PASS, BACKUP_VER_NOPASS):
         return False, "备份文件版本不支持"
@@ -742,7 +742,7 @@ def unlock_with_backup(path, passphrase, base_dir=None):
     if len(mk) != MASTER_LEN:
         return False, "密钥格式不正确"
     set_master(mk, "backup")
-    return True, "已用备份钥匙解锁"
+    return True, "已用恢复密钥解锁"
 
 
 # ------------------------------------------------------------------ 周期复核
@@ -765,10 +765,10 @@ def revalidate(devices=None, base_dir=None, ck_path=None):
     """复核当前钥匙是否还在；不在就立即收回权限（lock）。
 
     规则：
-      · U 盘解锁 —— 注册的 U 盘不在场则锁定（连续 WATCH_STRIKES 次确认才算，
+      · 设备解锁 —— 登记的设备不在场则锁定（连续 WATCH_STRIKES 次确认才算，
         避免一次枚举抖动误锁；枚举失败的那一轮直接跳过判断）；
       · CookieKey 解锁 —— 文件被移走 / 更换 / 损坏则锁定；
-      · 备份钥匙解锁 —— 钥匙是可复制的独立文件，不因硬件变化失效，不做检查；
+      · 恢复密钥解锁 —— 钥匙是可复制的独立文件，不因硬件变化失效，不做检查；
       · 本来就没有钥匙 —— 只探测 CookieKey（很便宜）：探到就升到受限权限，
         因为「已保存的登录状态」只需要 CookieKey 即可使用。
 
@@ -783,12 +783,12 @@ def revalidate(devices=None, base_dir=None, ck_path=None):
         if devices is not None:
             fps = [d.get("fp") for d in devices]
         else:
-            fps = cx_hwid.list_usb_fps()
+            fps = cx_env.scan_ids()
         if fps is None:                 # 枚举失败：本轮不判断，不计入缺失次数
             _miss_usb = 0
             reason = "usb_unknown"
         elif not fp:
-            _miss_usb += 1                  # 连注册记录都没了
+            _miss_usb += 1                  # 连登记记录都没了
         elif fp in fps:
             _miss_usb = 0
         else:
@@ -824,10 +824,13 @@ def revalidate(devices=None, base_dir=None, ck_path=None):
 
 
 def wipe(base_dir=None):
-    """销毁注册与所有受保护数据。"""
+    """销毁登记与所有受保护数据。"""
     dir_path, store = _paths(base_dir)
     ok = False
-    for p in (store, store + ".new", os.path.join(dir_path, "members.dat"),
+    for p in (store, store + ".new",
+              os.path.join(dir_path, "items.dat"),
+              os.path.join(dir_path, "items.dat.new"),
+              os.path.join(dir_path, "members.dat"),      # 旧版文件名一并清理
               os.path.join(dir_path, "members.dat.new"),
               os.path.join(dir_path, "key.dat"),    # key.dat 为旧版遗留文件
               cookie_key_path(), cookie_key_mark_path(),   # 子密钥与「已创建」标记一并销毁

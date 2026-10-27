@@ -31,10 +31,10 @@ FILES = [
     "cx_crypto.py",
     "cx_eula.py",
     "cx_guard.py",
-    "cx_hwid.py",
+    "cx_env.py",
     "cx_keyring.py",
     "cx_login.py",
-    "cx_members.py",
+    "cx_peer.py",
     "cx_vault.py",
 ]
 ASSET_DIR = "assets"
@@ -51,7 +51,8 @@ PRIVATE_HINTS = [
     os.path.join("keys", "CookieKey"), os.path.join("keys", ".cookiekey.lock"),
     "CookieKey", ".cookiekey.lock",
     "cookie/session.dat",
-    os.path.join("device", "keys.dat"), os.path.join("device", "members.dat"),
+    os.path.join("device", "keys.dat"), os.path.join("device", "items.dat"),
+    os.path.join("device", "members.dat"),
     "selftest_log.txt", ".eula.ok", "debug",
 ]
 

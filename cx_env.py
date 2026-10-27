@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-硬件指纹识别
+设备与环境标识
 ==============
-用于两件事：
-  1. 识别当前连接的 U 盘（按 **硬件序列号** 识别，与盘内文件、盘符无关）；
-  2. 生成本机 / 手工录入设备的指纹（统一为 SHA-256 摘要）。
+提供两类底层信息：
+  1. 枚举当前连接的外部存储设备（按固件序列号识别，与盘内文件、盘符无关）；
+  2. 生成本机 / 手工录入设备的稳定标识（统一为 SHA-256 摘要）。
 
-U 盘指纹来源优先级：设备序列号（SerialNumber）> 设备实例路径（PNPDeviceID）。
-两者都来自设备固件/枚举信息，复制盘内文件不会改变指纹。
+设备标识来源优先级：设备序列号（SerialNumber）> 设备实例路径（PNPDeviceID）。
+两者都来自设备固件/枚举信息，复制盘内文件不会改变标识。
 """
 
 import json
 import hashlib
 import subprocess
 
-# 只枚举 USB 接口的物理磁盘，并顺带取盘符（仅用于展示）
-_PS_QUERY = r"""
+# 枚举外部接口的物理磁盘，并顺带取盘符（仅用于展示）
+_PS_SCAN = r"""
 $ErrorActionPreference = 'SilentlyContinue'
 Get-CimInstance Win32_DiskDrive | Where-Object { $_.InterfaceType -eq 'USB' } | ForEach-Object {
   $d = $_
@@ -58,13 +58,13 @@ def _run_ps(script, timeout=20):
         return ""
 
 
-def _make_fp(hw_id):
+def _digest(hw_id):
     return hashlib.sha256(hw_id.encode("utf-8")).hexdigest()
 
 
-def list_usb_devices():
-    """返回当前连接的 USB 存储设备列表（按硬件指纹识别）。"""
-    raw = _run_ps(_PS_QUERY)
+def scan_devices():
+    """返回当前连接的 USB 存储设备列表（按设备与环境标识）。"""
+    raw = _run_ps(_PS_SCAN)
     if not raw:
         return []
     try:
@@ -81,21 +81,21 @@ def list_usb_devices():
         pnp = (d.get("PNP") or "").strip()
         if not (serial or pnp):
             continue
-        # 硬件身份：优先固件序列号；没有序列号时退回设备实例路径
+        # 设备身份：优先固件序列号；没有序列号时退回设备实例路径
         hw_id = "USB|%s|%s" % (model or "unknown", serial or pnp)
         devices.append({
-            "model": model or "未知 U 盘",
+            "model": model or "未知设备",
             "serial": serial,
             "pnp": pnp,
             "size_gb": d.get("SizeGB"),
             "letters": (d.get("Letters") or "").strip(),
             "hw_id": hw_id,
-            "fp": _make_fp(hw_id),
+            "fp": _digest(hw_id),
         })
     return devices
 
 
-# 周期性复核用的轻量查询：只取硬件身份，不做分区 / 盘符关联（快得多）
+# 周期性复核用的轻量查询：只取设备身份，不做分区 / 盘符关联（快得多）
 _PS_IDS = r"""
 $ErrorActionPreference = 'SilentlyContinue'
 Get-CimInstance Win32_DiskDrive | Where-Object { $_.InterfaceType -eq 'USB' } | ForEach-Object {
@@ -108,12 +108,12 @@ Get-CimInstance Win32_DiskDrive | Where-Object { $_.InterfaceType -eq 'USB' } | 
 """
 
 
-def list_usb_fps():
-    """当前连接 U 盘的硬件指纹列表（轻量版，供周期性复核使用）。
+def scan_ids():
+    """当前连接设备的标识列表（轻量版，供周期性复核使用）。
 
-    返回 list  —— 查询成功（可能为空，表示确实没有 U 盘）；
+    返回 list  —— 查询成功（可能为空，表示确实没有设备）；
     返回 None  —— 查询失败，结果不可信（调用方本轮应放弃判断，
-                  避免把一次偶发的枚举失败误当成「U 盘已拔出」）。
+                  避免把一次偶发的枚举失败误当成「设备已移除」）。
     """
     raw = _run_ps(_PS_IDS, timeout=15)
     if not raw:
@@ -131,28 +131,28 @@ def list_usb_fps():
         pnp = (d.get("PNP") or "").strip()
         if not (serial or pnp):
             continue
-        fps.append(_make_fp("USB|%s|%s" % (model or "unknown", serial or pnp)))
+        fps.append(_digest("USB|%s|%s" % (model or "unknown", serial or pnp)))
     return fps
 
 
-def pc_fingerprint():
-    """本机硬件指纹（计算机名 + 账户 + MachineGuid + 卷序列号 的摘要）。"""
+def machine_id():
+    """本机稳定标识（计算机名 + 账户 + MachineGuid + 卷序列号 的摘要）。"""
     try:
         import cx_guard
-        return _make_fp("PC|" + cx_guard.machine_secret().hex())
+        return _digest("PC|" + cx_guard.machine_secret().hex())
     except Exception:
         return ""
 
 
-def normalize_fp(raw):
-    """把手工录入的指纹（手机序列号 / 设备 ID 等）归一化为摘要。"""
+def derive_id(raw):
+    """把手工录入的标识（设备序列号 / ID 等）归一化为摘要。"""
     text = (raw or "").strip().lower()
     if not text:
         return ""
-    return _make_fp("EXT|" + text)
+    return _digest("EXT|" + text)
 
 
-def mask_fp(fp, head=10):
+def mask_id(fp, head=10):
     if not fp:
         return "—"
     return fp[:head] + "…" + fp[-4:] if len(fp) > head + 4 else fp

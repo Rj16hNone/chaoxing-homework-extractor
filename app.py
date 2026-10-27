@@ -26,8 +26,8 @@ from tkinter import ttk, filedialog, messagebox
 import chaoxing_extractor as cx
 import cx_login
 import cx_vault
-import cx_hwid
-import cx_members
+import cx_env
+import cx_peer
 import cx_keyring
 import cx_guard
 import cx_eula
@@ -860,7 +860,7 @@ class App:
             if not cx_keyring.cookie_readable():
                 self._set_status(
                     "未检测到 CookieKey：把 CookieKey 放回 keys 文件夹即可使用已保存的登录状态；"
-                    "也可以插入管理 U 盘，或用备份钥匙解锁。", "err")
+                    "也可以接入管理设备，或用恢复密钥解锁。", "err")
                 return
         self._run(mode=m)
 
@@ -871,7 +871,7 @@ class App:
 
     # ------------------------------------------------------------ 启动与解锁
     def _restore_session(self):
-        """启动时静默校验硬件钥匙（U 盘 / 备份钥匙）。"""
+        """启动时静默校验解锁状态（设备 / 恢复密钥）。"""
         threading.Thread(target=self._boot_worker, daemon=True).start()
 
     def _boot_worker(self):
@@ -882,7 +882,7 @@ class App:
         if st["state"] == "open":
             self._post(lambda: self.on_keyring_unlocked("full"))
             return
-        # 没插 U 盘时，自动检测项目目录下的 CookieKey（受限子密钥）——
+        # 没接入设备时，自动检测项目目录下的 CookieKey（受限子密钥）——
         # 「已保存的登录状态」只需要它就能用
         if cx_keyring.auto_cookie_key():
             self._post(lambda: self.on_keyring_unlocked("cookie", announce=True))
@@ -984,7 +984,7 @@ class App:
                     self.btn_refresh.configure(state="normal")
                     self.btn_logout.configure(state="normal")
                     self._set_status(
-                        "已重新识别到管理 U 盘，权限已恢复：可直接「重新提取」，"
+                        "已重新识别到管理设备，权限已恢复：可直接「重新提取」，"
                         "或切到「已保存登录态」。", "ok")
             return
 
@@ -1002,7 +1002,7 @@ class App:
                     "（仅 Cookie 读取权限）。", "ok")
             else:
                 self._set_status(
-                    "管理 U 盘已拔出：已收回成员管理权限，"
+                    "管理设备已移除：已收回成员管理权限，"
                     "当前仅能通过 CookieKey 读取本机已保存的 Cookie。", "info")
             return
 
@@ -1012,9 +1012,9 @@ class App:
             self.mode.set("account")
             self._switch_mode()
         if reason.startswith("usb"):
-            tail = "重新插入管理 U 盘，再点右下角齿轮「重新检测」即可恢复。"
+            tail = "重新接入管理设备，再点右下角齿轮「重新检测」即可恢复。"
         else:
-            tail = "把 CookieKey 放回 keys 文件夹（或重新插入管理 U 盘）后即可恢复。"
+            tail = "把 CookieKey 放回 keys 文件夹（或重新接入管理设备）后即可恢复。"
         self._set_status("检测到密钥已失效，已关闭查看权限。" + tail, "err")
 
     def _logout(self):
@@ -1047,7 +1047,7 @@ class App:
             if not cx_keyring.cookie_readable():
                 self._set_status(
                     "未检测到 CookieKey：把 CookieKey 放回 keys 文件夹即可使用；"
-                    "也可以插入管理 U 盘，或用备份钥匙解锁。", "err")
+                    "也可以接入管理设备，或用恢复密钥解锁。", "err")
                 return
         self.busy = True
         self.btn_login.configure(state="disabled")
@@ -1061,7 +1061,7 @@ class App:
         try:
             if mode == "saved" and not cx_keyring.cookie_readable():
                 raise cx.ChaoxingError("未检测到 CookieKey：请把它放回 keys 文件夹，"
-                                       "或插入管理 U 盘 / 用备份钥匙解锁")
+                                       "或接入管理设备 / 用恢复密钥解锁")
             if mode == "account":
                 cookies, msg = cx_login.chaoxing_login(
                     self.var_user.get().strip(),
@@ -1072,7 +1072,7 @@ class App:
                 self.cookies = cx_vault.ReadOnlyCookies(cookies)
                 tip = "，已加密保存到本机" if saved else "（本地保存失败，仅本次有效）"
                 if saved and not cx_keyring.cookie_readable():
-                    tip += "（用本机密钥加密，读取需 CookieKey / 管理 U 盘 / 备份钥匙）"
+                    tip += "（用本机密钥加密，读取需 CookieKey / 管理设备 / 恢复密钥）"
                 self._post(lambda: self._set_status(
                     f"登录成功（{msg}）{tip}，正在提取课程与作业/考试…", "ok"))
             elif mode == "cookie":
@@ -1087,7 +1087,7 @@ class App:
                         self._post(lambda: self._set_status("Cookie 已加密保存到本机。", "ok"))
                     else:
                         self._post(lambda: self._set_status(
-                            "Cookie 已用本机密钥加密保存；读取需 CookieKey、管理 U 盘或备份钥匙。",
+                            "Cookie 已用本机密钥加密保存；读取需 CookieKey、管理设备或恢复密钥。",
                             "ok"))
             elif mode == "saved":
                 cookies = cx_vault.load_session()
@@ -1095,7 +1095,7 @@ class App:
                     if not cx_keyring.cookie_readable():
                         raise cx.ChaoxingError(
                             "未检测到 CookieKey：把 CookieKey 放回 keys 文件夹即可使用"
-                            "已保存的登录状态；也可以插入管理 U 盘或用备份钥匙解锁")
+                            "已保存的登录状态；也可以接入管理设备或用恢复密钥解锁")
                     raise cx.ChaoxingError(
                         "本机保存的登录状态解不开（可能是别的 CookieKey、别的电脑保存的），"
                         "请用「账号密码登录」重新登录一次")
@@ -1344,9 +1344,9 @@ class App:
             messagebox.showerror(APP_TITLE, f"导出失败：{e}")
 
 
-# ================================================================ 硬件成员窗口
+# ================================================================ 设备记录窗口
 class MembersDialog(tk.Toplevel):
-    """隐私查看权限：管理 U 盘、备份钥匙与硬件成员（均由主密钥保护）。"""
+    """隐私查看权限：管理设备、恢复密钥与设备记录（均由主密钥保护）。"""
 
     def __init__(self, master, app=None):
         super().__init__(master)
@@ -1465,7 +1465,7 @@ class MembersDialog(tk.Toplevel):
         inner = tk.Frame(card, bg=CARD, padx=s(16), pady=s(14))
         inner.pack(fill="x")
 
-        self.lbl_key = tk.Label(inner, text="正在检测 U 盘…", bg=CARD, fg=ACCENT,
+        self.lbl_key = tk.Label(inner, text="正在检测设备…", bg=CARD, fg=ACCENT,
                                 font=("Microsoft YaHei UI", 10, "bold"), anchor="w")
         self.lbl_key.pack(fill="x")
 
@@ -1484,30 +1484,30 @@ class MembersDialog(tk.Toplevel):
                                justify="left", wraplength=s(760))
         self.lbl_ck.pack(fill="x", pady=(s(8), 0))
 
-        # 与 U 盘相关的操作：只在「有高级权限」或「刚插上未注册的 U 盘」时出现
+        # 与设备相关的操作：只在「有高级权限」或「刚接入未登记的设备」时出现
         self.row2 = tk.Frame(inner, bg=CARD)
-        self.btn_register = ttk.Button(self.row2, text="注册当前 U 盘", style="Ghost.TButton",
+        self.btn_register = ttk.Button(self.row2, text="登记当前设备", style="Ghost.TButton",
                                        image=self._img("key.png"), compound="left",
                                        command=self._do_register, state="disabled")
-        self.btn_unlock_bak = ttk.Button(self.row2, text="用备份钥匙解锁…", style="Ghost.TButton",
+        self.btn_unlock_bak = ttk.Button(self.row2, text="用恢复密钥解锁…", style="Ghost.TButton",
                                          image=self._img("unlock.png"), compound="left",
                                          command=self._unlock_with_backup, state="disabled")
-        self.btn_backup = ttk.Button(self.row2, text="生成备份钥匙…", style="Ghost.TButton",
+        self.btn_backup = ttk.Button(self.row2, text="生成恢复密钥…", style="Ghost.TButton",
                                      image=self._img("shield.png"), compound="left",
                                      command=self._create_backup, state="disabled")
 
-        # 成员卡（没有高级权限时整块隐藏）
+        # 记录卡（没有高级权限时整块隐藏）
         listcard = tk.Frame(wrap, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
         self.listcard = listcard
         lhead = tk.Frame(listcard, bg=CARD, padx=s(16), pady=s(10))
         lhead.pack(fill="x")
-        tk.Label(lhead, text="硬件成员", bg=CARD, fg=INK,
+        tk.Label(lhead, text="设备记录", bg=CARD, fg=INK,
                  font=("Microsoft YaHei UI", 10, "bold")).pack(side="left")
         self.btn_remove = ttk.Button(lhead, text="删除选中", style="Ghost.TButton",
                                      image=self._img("trash.png"), compound="left",
                                      command=self._remove, state="disabled")
         self.btn_remove.pack(side="right")
-        self.btn_add = ttk.Button(lhead, text="添加成员", style="Accent.TButton",
+        self.btn_add = ttk.Button(lhead, text="添加记录", style="Accent.TButton",
                                   command=self._add, state="disabled")
         self.btn_add.pack(side="right", padx=s(8))
 
@@ -1518,7 +1518,7 @@ class MembersDialog(tk.Toplevel):
         for key, text, width, anchor in (
             ("name", "名称", 200, "w"),
             ("type", "类型", 100, "center"),
-            ("fp", "硬件指纹", 230, "w"),
+            ("fp", "标识", 230, "w"),
             ("added", "添加时间", 150, "w"),
         ):
             self.tree.heading(key, text=text)
@@ -1537,7 +1537,7 @@ class MembersDialog(tk.Toplevel):
 
     # ------------------------------------------------------------ 检测
     def refresh(self):
-        self.lbl_key.configure(text="正在检测 U 盘…", fg="#2f6fed")
+        self.lbl_key.configure(text="正在检测设备…", fg="#2f6fed")
         self.btn_register.configure(state="disabled")
         threading.Thread(target=self._scan, daemon=True).start()
 
@@ -1547,10 +1547,10 @@ class MembersDialog(tk.Toplevel):
                 cx_keyring.auto_cookie_key()      # 打开窗口时先探一次 keys/ 里的钥匙
             except Exception:
                 pass
-            devs = cx_hwid.list_usb_devices()
-            st = cx_members.gate_state(devices=devs)
+            devs = cx_env.scan_devices()
+            st = cx_peer.state(devices=devs)
             level = cx_keyring.access_level()
-            members = cx_members.load_members() if st["state"] == "open" else None
+            members = cx_peer.load_all() if st["state"] == "open" else None
             self._post(lambda: self._apply(devs, st, members, level))
         except Exception as e:  # noqa: BLE001
             err = str(e)
@@ -1559,9 +1559,9 @@ class MembersDialog(tk.Toplevel):
     def _relayout(self, has_usb, advanced, unregistered):
         """按当前权限摆放面板：默认只露出 CookieKey 那一块（受限视图）。
 
-        · 没有高级权限 —— 不显示成员名单，也不显示 U 盘相关的按钮；
-        · 检测到未注册的 U 盘 —— 只多给一个「注册当前 U 盘」；
-        · 拿到高级权限 —— 才展开 U 盘操作与硬件成员名单。
+        · 没有高级权限 —— 不显示记录，也不显示设备相关的按钮；
+        · 检测到未登记的设备 —— 只多给一个「登记当前设备」；
+        · 拿到高级权限 —— 才展开设备操作与设备记录。
         """
         s = self._s
         key = (bool(has_usb), bool(advanced), bool(unregistered))
@@ -1586,7 +1586,7 @@ class MembersDialog(tk.Toplevel):
         else:
             self.row2.pack_forget()
         if show_list:
-            # before=foot：成员卡要排在底部说明的上方，否则重新 pack 会跑到说明后面
+            # before=foot：记录卡要排在底部说明的上方，否则重新 pack 会跑到说明后面
             self.listcard.pack(fill="both", expand=True, pady=(s(12), 0),
                                before=self.lbl_foot)
         else:
@@ -1608,7 +1608,7 @@ class MembersDialog(tk.Toplevel):
         self._devices = devs
         self._state = st
         self._members = members or []
-        advanced = level == "full"          # 高级权限：U 盘或备份钥匙解开了主密钥
+        advanced = level == "full"          # 高级权限：设备或恢复密钥解开了主密钥
         has_usb = bool(devs)
         ck = cx_keyring.cookie_key_state()
 
@@ -1653,41 +1653,41 @@ class MembersDialog(tk.Toplevel):
             for i, m in enumerate(members):
                 self.tree.insert("", "end", values=(
                     m.get("name", ""), m.get("type", ""),
-                    cx_hwid.mask_fp(m.get("fp", "")), m.get("added_at", "")),
+                    cx_env.mask_id(m.get("fp", "")), m.get("added_at", "")),
                     tags=("odd" if i % 2 else "even",))
             self.btn_add.configure(state="normal")
             self.btn_remove.configure(state="normal")
-            self.lbl_foot.configure(text="当前共 %d 个成员。指纹仅显示前后若干位，完整值加密保存。" % len(members))
+            self.lbl_foot.configure(text="当前共 %d 条记录。标识仅显示前后若干位，完整值加密保存。" % len(members))
         else:
             self.btn_add.configure(state="disabled")
             self.btn_remove.configure(state="disabled")
-            msg = "解锁后可查看名单" if not advanced else "名单无法解密（文件可能被损坏）"
+            msg = "解锁后可查看记录" if not advanced else "记录无法解密（文件可能被损坏）"
             self.tree.insert("", "end", values=("🔒 " + msg, "", "", ""))
 
         # 底部说明只在真正展开高级面板时出现；受限视图保持干净
         if not (has_usb and advanced):
             self.lbl_foot.configure(text="")
         elif members is not None:
-            self.lbl_foot.configure(text="当前共 %d 个成员。指纹仅显示前后若干位，完整值加密保存。"
+            self.lbl_foot.configure(text="当前共 %d 条记录。标识仅显示前后若干位，完整值加密保存。"
                                         % len(members))
         else:
-            self.lbl_foot.configure(text="名单无法解密（文件可能被损坏）。")
+            self.lbl_foot.configure(text="记录无法解密（文件可能被损坏）。")
 
     # ------------------------------------------------------------ 操作
     def _choose_device(self):
         if len(self._devices) == 1:
             return self._devices[0]
         win = tk.Toplevel(self)
-        win.title("选择 U 盘")
+        win.title("选择设备")
         win.geometry("%dx%d" % (self._s(480), self._s(280)))
         win.configure(bg="#ffffff")
         win.transient(self)
-        tk.Label(win, text="检测到多枚 U 盘，请选择要注册为管理钥匙的那一枚：",
+        tk.Label(win, text="检测到多枚设备，请选择要登记为管理密钥的那一枚：",
                  bg="#ffffff", anchor="w", justify="left", wraplength=430).pack(
             fill="x", padx=14, pady=(12, 8))
         var = tk.IntVar(value=0)
         for i, d in enumerate(self._devices):
-            txt = "U 盘 #%d  ·  指纹 %s" % (i + 1, cx_hwid.mask_fp(d["fp"]))
+            txt = "设备 #%d  ·  标识 %s" % (i + 1, cx_env.mask_id(d["fp"]))
             tk.Radiobutton(win, text=txt, variable=var, value=i, bg="#ffffff",
                            anchor="w", justify="left").pack(fill="x", padx=18)
         picked = {"dev": None}
@@ -1703,53 +1703,53 @@ class MembersDialog(tk.Toplevel):
 
     def _do_register(self):
         if not self._devices:
-            messagebox.showinfo("隐私查看权限", "没有检测到 U 盘，请插入后点「重新检测」。", parent=self)
+            messagebox.showinfo("隐私查看权限", "没有检测到设备，请接入后点「重新检测」。", parent=self)
             return
         dev = self._choose_device()
         if not dev:
             return
-        tip = ("将把当前 U 盘注册为「管理钥匙」：\n\n指纹：%s\n\n"
-               "注册后，Cookie 与硬件成员名单都由它保护：\n"
-               "  · 插着这枚 U 盘才能登录、提取与查看名单；\n"
-               "  · U 盘丢失时，可用备份钥匙解锁；两者都丢失则数据无法恢复。\n\n确定继续？") % (
-            cx_hwid.mask_fp(dev["fp"]))
-        if not messagebox.askyesno("确认注册", tip, parent=self):
+        tip = ("将把当前设备登记为「管理密钥」：\n\n标识：%s\n\n"
+               "登记后，Cookie 与设备记录都由它保护：\n"
+               "  · 接入这台设备才能登录、提取与查看记录；\n"
+               "  · 设备丢失时，可用恢复密钥解锁；两者都丢失则数据无法恢复。\n\n确定继续？") % (
+            cx_env.mask_id(dev["fp"]))
+        if not messagebox.askyesno("确认登记", tip, parent=self):
             return
-        ok, msg = cx_members.register(dev)
+        ok, msg = cx_peer.setup(dev)
         if ok:
             messagebox.showinfo(
                 "隐私查看权限",
-                "注册成功。\n\n建议立刻点「生成备份钥匙…」，把备份文件存到网盘或手机里，"
-                "以防 U 盘丢失。",
+                "登记成功。\n\n建议立刻点「生成恢复密钥…」，把备份文件存到网盘或手机里，"
+                "以防设备丢失。",
                 parent=self)
             if self.app:
                 self.app.on_keyring_unlocked()
         else:
-            messagebox.showerror("隐私查看权限", "注册失败：" + msg, parent=self)
+            messagebox.showerror("隐私查看权限", "登记失败：" + msg, parent=self)
         self.refresh()
 
     def _create_backup(self):
-        if not cx_keyring.unlocked():
+        if not cx_keyring.ready():
             return
-        pwd = PassDialog(self, "生成备份钥匙", confirm=True, allow_nopass=True)
+        pwd = PassDialog(self, "生成恢复密钥", confirm=True, allow_nopass=True)
         if pwd.value is None:
             return
         path = filedialog.asksaveasfilename(
-            parent=self, title="保存备份钥匙",
+            parent=self, title="保存恢复密钥",
             defaultextension=".cxkey", initialfile="隐私权限备份.cxkey",
-            filetypes=[("备份钥匙文件", "*.cxkey"), ("所有文件", "*.*")],
+            filetypes=[("恢复密钥文件", "*.cxkey"), ("所有文件", "*.*")],
         )
         if not path:
             return
         ok, msg = cx_keyring.create_backup(path, pwd.value)
         if ok:
-            extra = ("该文件未设口令，本身即为钥匙：复制到任何位置（含网盘、U 盘、另一台电脑）"
+            extra = ("该文件未设口令，本身即为钥匙：复制到任何位置（含网盘、设备、另一台电脑）"
                      "都能直接使用。\n请务必妥善保管，不要随意外发。" if not pwd.value else
                      "该文件可复制到任意位置使用，解封时需要你设置的口令。\n请牢记口令，"
                      "丢失后备份文件将无法解封。")
             messagebox.showinfo(
                 "隐私查看权限",
-                "备份钥匙已保存：\n%s\n\n%s\n建议不要与数据文件放在同一目录。" % (path, extra),
+                "恢复密钥已保存：\n%s\n\n%s\n建议不要与数据文件放在同一目录。" % (path, extra),
                 parent=self)
         else:
             messagebox.showerror("隐私查看权限", msg, parent=self)
@@ -1773,7 +1773,7 @@ class MembersDialog(tk.Toplevel):
                 parent=self)
             return
         if state["foreign"] or state["corrupt"]:
-            why = ("这个 CookieKey 是在另一台电脑上创建的，与本机硬件绑定，本机解不开。"
+            why = ("这个 CookieKey 是在另一台电脑上创建的，与本机绑定，本机解不开。"
                    if state["foreign"] else
                    "这个 CookieKey 文件已经损坏，读不出密钥。")
             if not messagebox.askyesno(
@@ -1794,9 +1794,9 @@ class MembersDialog(tk.Toplevel):
                 return
         tip = ("CookieKey 是这台电脑的 Cookie 钥匙：\n\n"
                "· 每台电脑只能创建一次，删除后无法重新生成；\n"
-               "· 与本机硬件绑定：只在这台电脑上有效，复制到别的电脑解不开；\n"
+               "· 与本机绑定：只在这台电脑上有效，复制到别的电脑解不开；\n"
                "· 会保存在程序目录的 keys 文件夹里；在本机可以复制一份作为备份；\n"
-               "· 创建不需要 U 盘，也不影响成员名单的 U 盘保护。\n\n"
+               "· 创建不需要设备，也不影响记录的设备保护。\n\n"
                "现在创建？")
         if not messagebox.askyesno("创建 CookieKey", tip, parent=self):
             return
@@ -1837,12 +1837,12 @@ class MembersDialog(tk.Toplevel):
 
     def _unlock_with_backup(self):
         path = filedialog.askopenfilename(
-            parent=self, title="选择备份钥匙文件",
-            filetypes=[("备份钥匙文件", "*.cxkey"), ("所有文件", "*.*")],
+            parent=self, title="选择恢复密钥文件",
+            filetypes=[("恢复密钥文件", "*.cxkey"), ("所有文件", "*.*")],
         )
         if not path:
             return
-        pwd = PassDialog(self, "解封备份钥匙", confirm=False,
+        pwd = PassDialog(self, "解封恢复密钥", confirm=False,
                          hint="输入生成备份时设置的口令；未设口令的备份直接点「确定」")
         if pwd.value is None:
             return
@@ -1859,7 +1859,7 @@ class MembersDialog(tk.Toplevel):
         dlg = AddMemberDialog(self)
         if not dlg.result:
             return
-        ok, msg = cx_members.add_member(
+        ok, msg = cx_peer.add(
             dlg.result["name"], dlg.result["type"], dlg.result["fp"])
         if not ok:
             messagebox.showwarning("隐私查看权限", msg, parent=self)
@@ -1874,14 +1874,14 @@ class MembersDialog(tk.Toplevel):
         name = self.tree.item(sel[0], "values")[0]
         if not messagebox.askyesno("删除成员", "确定删除「%s」吗？" % name, parent=self):
             return
-        ok, msg = cx_members.remove_member(idx)
+        ok, msg = cx_peer.remove(idx)
         if not ok:
             messagebox.showwarning("隐私查看权限", msg, parent=self)
         self.refresh()
 
 
 class PassDialog(tk.Toplevel):
-    """口令输入框（生成 / 解封备份钥匙）。"""
+    """口令输入框（生成 / 解封恢复密钥）。"""
 
     def __init__(self, master, title, confirm=False, hint="", allow_nopass=False):
         super().__init__(master)
@@ -1963,11 +1963,11 @@ class PassDialog(tk.Toplevel):
 
 
 class AddMemberDialog(tk.Toplevel):
-    """添加一个硬件成员（名称 + 类型 + 指纹）。"""
+    """添加一个设备记录（名称 + 类型 + 标识）。"""
 
     def __init__(self, master):
         super().__init__(master)
-        self.title("添加硬件成员")
+        self.title("添加设备记录")
         self.geometry("540x330")
         self.configure(bg="#ffffff")
         self.transient(master)
@@ -1987,12 +1987,12 @@ class AddMemberDialog(tk.Toplevel):
         ttk.Combobox(self, textvariable=self.var_type, values=["电脑", "手机", "平板", "其他"],
                      state="readonly").pack(fill="x", **pad)
 
-        tk.Label(self, text="硬件指纹（手机可填「设置 → 关于手机」里的序列号 / 设备 ID）",
+        tk.Label(self, text="标识（手机可填「设置 → 关于手机」里的序列号 / 设备 ID）",
                  bg="#ffffff", fg="#6b7785", font=("Microsoft YaHei UI", 9)).pack(
             anchor="w", pady=(10, 2), **pad)
         self.var_fp = tk.StringVar()
         tk.Entry(self, textvariable=self.var_fp).pack(fill="x", **pad)
-        ttk.Button(self, text="使用本机指纹", command=self._use_pc).pack(anchor="w", pady=(6, 0), **pad)
+        ttk.Button(self, text="使用本机标识", command=self._use_pc).pack(anchor="w", pady=(6, 0), **pad)
 
         row = tk.Frame(self, bg="#ffffff")
         row.pack(fill="x", pady=16, **pad)
@@ -2000,7 +2000,7 @@ class AddMemberDialog(tk.Toplevel):
         ttk.Button(row, text="确定添加", command=self._ok).pack(side="right", padx=8)
 
     def _use_pc(self):
-        self.var_fp.set(cx_hwid.pc_fingerprint())
+        self.var_fp.set(cx_env.machine_id())
         if not self.var_name.get().strip():
             self.var_name.set("本机")
 
@@ -2008,10 +2008,10 @@ class AddMemberDialog(tk.Toplevel):
         name = self.var_name.get().strip()
         fp = self.var_fp.get().strip()
         if not name:
-            messagebox.showwarning("添加成员", "请填写名称。", parent=self)
+            messagebox.showwarning("添加记录", "请填写名称。", parent=self)
             return
         if not fp:
-            messagebox.showwarning("添加成员", "请填写指纹，或点「使用本机指纹」。", parent=self)
+            messagebox.showwarning("添加记录", "请填写标识，或点「使用本机标识」。", parent=self)
             return
         self.result = {"name": name, "type": self.var_type.get() or "其他", "fp": fp}
         self.destroy()
@@ -2078,7 +2078,7 @@ def _selftest(argv):
             cx_keyring.lock()
             shutil.rmtree(tmp3, ignore_errors=True)
 
-        # 10 秒周期复核自检（拔出 U 盘 -> 收回权限）
+        # 10 秒周期复核自检（拔出设备 -> 收回权限）
         tmp4 = tempfile.mkdtemp(prefix="cxwatch_")
         try:
             import hashlib as _hl
@@ -2087,7 +2087,7 @@ def _selftest(argv):
                    "hw_id": hw, "fp": _hl.sha256(hw.encode()).hexdigest()}
             ckp = os.path.join(tmp4, "CK")
             cx_keyring.lock()
-            cx_keyring.register_usb(dev, base_dir=tmp4)
+            cx_keyring.register_device(dev, base_dir=tmp4)
             lv_present = cx_keyring.revalidate(devices=[dev], base_dir=tmp4, ck_path=ckp)["level"]
             lv_1 = cx_keyring.revalidate(devices=[], base_dir=tmp4, ck_path=ckp)["level"]
             lv_2 = cx_keyring.revalidate(devices=[], base_dir=tmp4, ck_path=ckp)["level"]
@@ -2119,7 +2119,7 @@ def _selftest(argv):
             cx_keyring.lock()
             ro = cx_vault.load_session(base_dir=tmp5)
             auto = bool(ro)
-            # 换台电脑（伪造本机指纹）应当解不开
+            # 换台电脑（伪造本机标识）应当解不开
             cx_guard.machine_secret = lambda: b"selftest-other-pc\x1fguid\x1f123456"
             cx_keyring.lock()
             foreign_read = cx_vault.load_session(base_dir=tmp5)
@@ -2181,7 +2181,7 @@ def _selftest(argv):
             cx_keyring.legacy_mark_path = orig_legm7
             shutil.rmtree(tmp7, ignore_errors=True)
 
-        # U 盘门控自检（临时目录 + 假设备，不碰真实钥匙）
+        # 设备门控自检（临时目录 + 假设备，不碰真实钥匙）
         tmp2 = tempfile.mkdtemp(prefix="cxusb_")
         try:
             import hashlib
@@ -2190,15 +2190,15 @@ def _selftest(argv):
                 "model": "TESTUSB", "serial": "SN123", "letters": "Z:",
                 "hw_id": hw_id, "fp": hashlib.sha256(hw_id.encode()).hexdigest(),
             }
-            reg = cx_members.register(fake_dev, base_dir=tmp2)[0]
-            open_state = cx_members.gate_state(base_dir=tmp2, devices=[fake_dev])["state"]
+            reg = cx_peer.setup(fake_dev, base_dir=tmp2)[0]
+            open_state = cx_peer.state(base_dir=tmp2, devices=[fake_dev])["state"]
             bak_ok = cx_keyring.create_backup(os.path.join(tmp2, "b.cxkey"), "selftest123")[0]
             cx_keyring.lock()
-            locked_state = cx_members.gate_state(base_dir=tmp2, devices=[])["state"]
-            locked_none = cx_members.load_members(base_dir=tmp2) is None
+            locked_state = cx_peer.state(base_dir=tmp2, devices=[])["state"]
+            locked_none = cx_peer.load_all(base_dir=tmp2) is None
             unlock_ok = cx_keyring.unlock_with_backup(
                 os.path.join(tmp2, "b.cxkey"), "selftest123")[0]
-            members_after = cx_members.load_members(base_dir=tmp2)
+            members_after = cx_peer.load_all(base_dir=tmp2)
             lines.append(
                 f"members: register={reg} open={open_state} backup={bak_ok} "
                 f"locked={locked_state} read_locked={locked_none} "

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-硬件成员库（受主密钥保护）
+设备记录库（受主密钥保护）
 ============================
-成员名单加密保存在 device/members.dat，密钥来自 cx_keyring 的主密钥：
-  - 主密钥只能通过「已注册的 U 盘」或「备份钥匙文件」解封；
-  - 因此没有 U 盘（且没有备份钥匙）时，名单既不能查看，也不能增删。
+记录加密保存在 device/items.dat，密钥来自 cx_keyring 的主密钥：
+  - 主密钥只能通过已登记的设备解锁；
+  - 未解锁时，记录既不能查看，也不能增删。
 
 只读视图、容器混淆、完整性校验与 Cookie 会话仓库一致。
 """
@@ -19,12 +19,13 @@ import datetime
 
 import cx_crypto
 import cx_guard
-import cx_hwid
+import cx_env
 import cx_keyring
 import cx_vault
 
 DIR_NAME = "device"
-MEMBERS_FILE = "members.dat"
+ITEMS_FILE = "items.dat"      # 当前文件名
+LEGACY_FILE = "members.dat"    # 旧版文件名，仅用于读取兼容
 SALT_LEN = 16
 
 
@@ -37,13 +38,22 @@ def _app_dir():
 
 def _paths(base_dir=None):
     d = base_dir or os.path.join(_app_dir(), DIR_NAME)
-    return d, os.path.join(d, MEMBERS_FILE)
+    return d, os.path.join(d, ITEMS_FILE)
+
+
+def _read_path(base_dir=None):
+    """优先读新文件名；只有它不存在时才回退到旧文件名。"""
+    d, cur = _paths(base_dir)
+    legacy = os.path.join(d, LEGACY_FILE)
+    if not os.path.exists(cur) and os.path.exists(legacy):
+        return legacy
+    return cur
 
 
 # ------------------------------------------------------------------ 密钥
 def _derive(salt, legacy=False):
-    """成员专用子密钥；CookieKey 只有 Cookie 权限，拿不到这把钥匙。"""
-    key = cx_keyring.master() if legacy else cx_keyring.members_key()
+    """记录专用子密钥；CookieKey 只有 Cookie 权限，拿不到这把钥匙。"""
+    key = cx_keyring.master() if legacy else cx_keyring.profile_key()
     if key is None:
         raise RuntimeError("locked")
     label = b"cx.members.kdf.v2" if legacy else b"cx.members.kdf.v3"
@@ -113,29 +123,28 @@ def _write(path, data):
 
 
 # ------------------------------------------------------------------ 状态
-def gate_state(base_dir=None, devices=None):
+def state(base_dir=None, devices=None):
     """委托给密钥环：unregistered / locked / open。"""
     return cx_keyring.state(base_dir=base_dir, devices=devices)
 
 
-def registered_info(base_dir=None):
+def info(base_dir=None):
     st = cx_keyring.state(base_dir=base_dir, devices=[])
     if st["state"] == "unregistered":
         return None
-    return {"display": st.get("display") or "已注册 U 盘"}
+    return {"display": st.get("display") or "已登记设备"}
 
 
-# ------------------------------------------------------------------ 注册
-def register(device, base_dir=None):
-    """注册管理 U 盘；成功后初始化成员名单（含本机）。"""
-    ok, msg = cx_keyring.register_usb(device, base_dir=base_dir)
+# ------------------------------------------------------------------ 登记
+def setup(device, base_dir=None):
+    """登记管理设备；成功后初始化记录（含本机）。"""
+    ok, msg = cx_keyring.register_device(device, base_dir=base_dir)
     if not ok:
         return False, msg
 
-    _, members_path = _paths(base_dir)
     existing = None
     try:
-        existing = _unseal(open(members_path, "rb").read())
+        existing = _unseal(open(_read_path(base_dir), "rb").read())
     except OSError:
         existing = None
 
@@ -143,27 +152,26 @@ def register(device, base_dir=None):
         members = [{
             "name": "本机",
             "type": "电脑",
-            "fp": cx_hwid.pc_fingerprint(),
+            "fp": cx_env.machine_id(),
             "added_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         }]
-        if not save_members(members, base_dir=base_dir):
-            return False, "成员名单初始化失败"
+        if not save_all(members, base_dir=base_dir):
+            return False, "初始化失败"
     return True, msg
 
 
-def unregister(base_dir=None):
-    """销毁注册与全部受保护数据。"""
+def reset(base_dir=None):
+    """销毁登记与全部受保护数据。"""
     return cx_keyring.wipe(base_dir=base_dir)
 
 
-# ------------------------------------------------------------------ 成员读写
-def load_members(base_dir=None, device=None):
-    """读取成员名单；未解锁或被篡改时返回 None。"""
-    if not cx_keyring.unlocked():
+# ------------------------------------------------------------------ 记录读写
+def load_all(base_dir=None, device=None):
+    """读取记录；未解锁或被篡改时返回 None。"""
+    if not cx_keyring.ready():
         return None
-    _, members_path = _paths(base_dir)
     try:
-        blob = open(members_path, "rb").read()
+        blob = open(_read_path(base_dir), "rb").read()
     except OSError:
         return []
     data = _unseal(blob)
@@ -173,8 +181,8 @@ def load_members(base_dir=None, device=None):
     return members if isinstance(members, list) else []
 
 
-def save_members(members, base_dir=None, device=None):
-    if not cx_keyring.unlocked():
+def save_all(members, base_dir=None, device=None):
+    if not cx_keyring.ready():
         return False
     dir_path, members_path = _paths(base_dir)
     os.makedirs(dir_path, exist_ok=True)
@@ -190,34 +198,34 @@ def save_members(members, base_dir=None, device=None):
         return False
 
 
-def add_member(name, type_, fp_raw, base_dir=None, device=None):
-    """添加成员。fp_raw 可以是本机指纹摘要，或手机序列号等原始文本。"""
-    if not cx_keyring.unlocked():
-        return False, "请先插入管理 U 盘（或使用备份钥匙解锁）"
-    members = load_members(base_dir)
+def add(name, type_, fp_raw, base_dir=None, device=None):
+    """添加记录。fp_raw 可以是本机标识摘要，或设备序列号等原始文本。"""
+    if not cx_keyring.ready():
+        return False, "请先解锁后再操作"
+    members = load_all(base_dir)
     if members is None:
-        return False, "成员名单无法解密"
-    fp = fp_raw if len(fp_raw or "") == 64 else cx_hwid.normalize_fp(fp_raw)
+        return False, "记录无法解密"
+    fp = fp_raw if len(fp_raw or "") == 64 else cx_env.derive_id(fp_raw)
     if not fp:
-        return False, "指纹不能为空"
+        return False, "标识不能为空"
     if any(m.get("fp") == fp for m in members):
-        return False, "该设备已在名单中"
+        return False, "该设备已在记录中"
     members.append({
         "name": (name or "未命名设备").strip(),
         "type": (type_ or "其他").strip(),
         "fp": fp,
         "added_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
     })
-    ok = save_members(members, base_dir=base_dir)
+    ok = save_all(members, base_dir=base_dir)
     return (True, "已添加") if ok else (False, "保存失败")
 
 
-def remove_member(index, base_dir=None, device=None):
-    if not cx_keyring.unlocked():
-        return False, "请先插入管理 U 盘（或使用备份钥匙解锁）"
-    members = load_members(base_dir)
+def remove(index, base_dir=None, device=None):
+    if not cx_keyring.ready():
+        return False, "请先解锁后再操作"
+    members = load_all(base_dir)
     if not members or not (0 <= index < len(members)):
         return False, "没有这条记录"
     members.pop(index)
-    ok = save_members(members, base_dir=base_dir)
+    ok = save_all(members, base_dir=base_dir)
     return (True, "已删除") if ok else (False, "保存失败")
