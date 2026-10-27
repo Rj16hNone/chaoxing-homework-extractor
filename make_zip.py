@@ -29,6 +29,7 @@ FILES = [
     "app.py",
     "chaoxing_extractor.py",
     "cx_crypto.py",
+    "cx_eula.py",
     "cx_guard.py",
     "cx_hwid.py",
     "cx_keyring.py",
@@ -40,17 +41,18 @@ ASSET_DIR = "assets"
 ASSET_EXTS = (".png", ".ico")
 
 # ---- 隐私闸门：命中任何一条就拒绝打包 ----
-BAD_DIRS = ("cookie", "device", "debug", "__pycache__", ".workbuddy",
+BAD_DIRS = ("cookie", "device", "keys", "debug", "__pycache__", ".workbuddy",
             "build-tk", "dist", ".build-venv", ".pkg")
 BAD_WORDS = ("cookiekey", "session", "debug", "selftest")
 BAD_EXTS = (".dat", ".bak", ".log", ".json", ".db", ".sqlite", ".ini")
 
 # ---- 只用来提示「这些隐私文件已被排除」，不会打包 ----
 PRIVATE_HINTS = [
-    "CookieKey", ".cookiekey.lock", ".cookiekey.dirs",
-    os.path.join("cookie", "session.dat"),
+    os.path.join("keys", "CookieKey"), os.path.join("keys", ".cookiekey.lock"),
+    "CookieKey", ".cookiekey.lock",
+    "cookie/session.dat",
     os.path.join("device", "keys.dat"), os.path.join("device", "members.dat"),
-    "selftest_log.txt", "debug",
+    "selftest_log.txt", ".eula.ok", "debug",
 ]
 
 

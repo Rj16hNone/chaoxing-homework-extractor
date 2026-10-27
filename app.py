@@ -30,6 +30,7 @@ import cx_hwid
 import cx_members
 import cx_keyring
 import cx_guard
+import cx_eula
 
 APP_TITLE = "超星学习通 · 未完成作业 / 考试提取"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -242,6 +243,169 @@ class ScrollArea(tk.Frame):
             pass
 
 
+def _setup_styles(s):
+    """全局 ttk 样式；主窗口、隐私窗口与首次运行对话框共用。"""
+    st = ttk.Style()
+    try:
+        st.theme_use("clam")
+    except Exception:
+        pass
+    st.configure(".", font=("Microsoft YaHei UI", 10), background=BG, foreground=INK)
+    st.configure("TFrame", background=BG)
+    st.configure("TLabel", background=BG, foreground=INK)
+    st.configure("Accent.TButton", background=ACCENT, foreground="#ffffff",
+                 borderwidth=0, focusthickness=0, padding=(s(18), s(9)),
+                 font=("Microsoft YaHei UI", 10, "bold"))
+    st.map("Accent.TButton",
+           background=[("pressed", "#1e4fc4"), ("active", "#2560d4"),
+                       ("disabled", "#e6ecf9")],
+           foreground=[("disabled", "#9fb0cf")])
+    st.configure("Ghost.TButton", background=CARD, foreground="#46505c",
+                 borderwidth=1, relief="solid", padding=(s(13), s(7)),
+                 font=("Microsoft YaHei UI", 9))
+    st.map("Ghost.TButton",
+           background=[("active", "#f2f6fd"), ("disabled", "#f7f8fa")],
+           foreground=[("active", ACCENT), ("disabled", "#aab3bd")])
+    try:
+        st.layout("Mode.TRadiobutton", st.layout("Toolbutton"))
+    except Exception:
+        pass
+    st.configure("Mode.TRadiobutton", background="#eef2f8", foreground="#46505c",
+                 padding=(s(15), s(7)), font=("Microsoft YaHei UI", 9), borderwidth=0)
+    st.map("Mode.TRadiobutton",
+           background=[("selected", ACCENT), ("active", "#e2e9f7")],
+           foreground=[("selected", "#ffffff"), ("active", "#2b3540")])
+    st.configure("Treeview", background=CARD, fieldbackground=CARD, borderwidth=0,
+                 rowheight=s(30), font=("Microsoft YaHei UI", 9))
+    st.configure("Treeview.Heading", background="#f5f8fc", foreground="#5b6672",
+                 relief="flat", font=("Microsoft YaHei UI", 9, "bold"),
+                 padding=(s(8), s(7)))
+    st.map("Treeview.Heading", background=[("active", "#eaf0fa")])
+    st.map("Treeview", background=[("selected", "#dbe7ff")], foreground=[("selected", INK)])
+
+
+class EulaDialog(tk.Toplevel):
+    """首次运行时的许可与免责声明（同意后才进入主界面）。"""
+
+    def __init__(self, master):
+        super().__init__(master)
+        self.result = False
+        self.title(cx_eula.TITLE)
+        try:
+            dpi = self.winfo_fpixels("1i")
+        except Exception:
+            dpi = 96.0
+        self.scale = max(1.0, round(dpi / 96.0, 2))
+        self._s = lambda v: int(round(v * self.scale))
+        s = self._s
+        try:
+            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+            w = min(780, max(560, int((sw - s(80)) / self.scale)))
+            h = min(660, max(420, int((sh - s(120)) / self.scale)))
+            self.geometry("%dx%d+%d+%d" % (
+                s(w), s(h), max(0, (sw - s(w)) // 2), max(0, (sh - s(h)) // 2 - s(20))))
+            self.minsize(s(520), s(400))
+        except Exception:
+            self.geometry("760x620")
+        self.configure(bg=BG)
+        try:
+            # 主窗口此时是隐藏的：transient 到隐藏窗口在 Windows 上可能连自己也不显示，
+            # 所以只在主窗口可见时才挂靠。
+            if master is not None and master.winfo_viewable():
+                self.transient(master)
+        except Exception:
+            pass
+        self.protocol("WM_DELETE_WINDOW", self._decline)
+        self.bind("<Escape>", lambda _e: self._decline())
+        self._build()
+        try:
+            self.grab_set()
+            self.lift()
+            self.focus_force()
+        except Exception:
+            pass
+
+    def _img(self, name):
+        try:
+            hi = name.replace(".png", "@2x.png") if self.scale >= 1.4 else name
+            p = _resource("assets", hi)
+            if not os.path.exists(p):
+                p = _resource("assets", name)
+            self._logo = tk.PhotoImage(file=p)
+            return self._logo
+        except Exception:
+            return None
+
+    def _build(self):
+        s = self._s
+        wrap = tk.Frame(self, bg=BG, padx=s(20), pady=s(16))
+        wrap.pack(fill="both", expand=True)
+
+        head = tk.Frame(wrap, bg=BG)
+        head.pack(fill="x")
+        ic = self._img("shield.png")
+        if ic:
+            tk.Label(head, image=ic, bg=BG).pack(side="left", padx=(0, s(10)))
+        ht = tk.Frame(head, bg=BG)
+        ht.pack(side="left")
+        tk.Label(ht, text=cx_eula.TITLE, bg=BG, fg=INK,
+                 font=("Microsoft YaHei UI", 14, "bold")).pack(anchor="w")
+        tk.Label(ht, text="首次运行需要确认 · 版本 1.0 · MIT License", bg=BG, fg=SUB,
+                 font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(s(2), 0))
+
+        box = tk.Frame(wrap, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
+        self.txt = tk.Text(box, wrap="word", bd=0, highlightthickness=0,
+                           bg=CARD, fg=INK, cursor="arrow", height=12,
+                           font=("Microsoft YaHei UI", 9),
+                           padx=s(14), pady=s(12),
+                           spacing1=s(1), spacing2=s(2), spacing3=s(3))
+        vsb = Rail(box, command=self.txt.yview, bg=CARD)
+        self.txt.configure(yscrollcommand=vsb.set)
+        self.txt.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y", padx=(s(4), s(2)), pady=s(6))
+        self.txt.insert("1.0", cx_eula.BODY)
+        self.txt.configure(state="disabled")
+        self.txt.bind("<MouseWheel>",
+                      lambda e: self.txt.yview_scroll(int(-e.delta / 120), "units"))
+
+        foot = tk.Frame(wrap, bg=BG)
+        foot.pack(side="bottom", fill="x", pady=(s(12), 0))
+        box.pack(side="top", fill="both", expand=True, pady=(s(14), 0))
+        self.var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            foot, text="我已阅读并同意上述条款", variable=self.var,
+            command=self._sync, bg=BG, fg=INK, activebackground=BG, activeforeground=INK,
+            selectcolor="#ffffff", bd=0, highlightthickness=0,
+            font=("Microsoft YaHei UI", 9)).pack(side="left")
+
+        self.btn_ok = ttk.Button(foot, text="同意并继续", style="Accent.TButton",
+                                 command=self._agree, state="disabled")
+        self.btn_ok.pack(side="right")
+        ttk.Button(foot, text="退出", style="Ghost.TButton",
+                   command=self._decline).pack(side="right", padx=s(8))
+
+    def _sync(self):
+        self.btn_ok.configure(state="normal" if self.var.get() else "disabled")
+
+    def _agree(self):
+        if not self.var.get():
+            return
+        cx_eula.accept()
+        self.result = True
+        self.destroy()
+
+    def _decline(self):
+        self.result = False
+        self.destroy()
+
+
+def _ask_eula(root):
+    """弹出首次运行声明；返回 True 表示已同意。"""
+    dlg = EulaDialog(root)
+    root.wait_window(dlg)
+    return bool(dlg.result)
+
+
 class App:
     WATCH_MS = 10000        # 每 10 秒复核一次钥匙是否还在
 
@@ -298,45 +462,6 @@ class App:
         except Exception:
             return None
 
-    def _setup_styles(self, s):
-        st = ttk.Style()
-        try:
-            st.theme_use("clam")
-        except Exception:
-            pass
-        st.configure(".", font=("Microsoft YaHei UI", 10), background=BG, foreground=INK)
-        st.configure("TFrame", background=BG)
-        st.configure("TLabel", background=BG, foreground=INK)
-        st.configure("Accent.TButton", background=ACCENT, foreground="#ffffff",
-                     borderwidth=0, focusthickness=0, padding=(s(18), s(9)),
-                     font=("Microsoft YaHei UI", 10, "bold"))
-        st.map("Accent.TButton",
-               background=[("pressed", "#1e4fc4"), ("active", "#2560d4"),
-                           ("disabled", "#e6ecf9")],
-               foreground=[("disabled", "#9fb0cf")])
-        st.configure("Ghost.TButton", background=CARD, foreground="#46505c",
-                     borderwidth=1, relief="solid", padding=(s(13), s(7)),
-                     font=("Microsoft YaHei UI", 9))
-        st.map("Ghost.TButton",
-               background=[("active", "#f2f6fd"), ("disabled", "#f7f8fa")],
-               foreground=[("active", ACCENT), ("disabled", "#aab3bd")])
-        try:
-            st.layout("Mode.TRadiobutton", st.layout("Toolbutton"))
-        except Exception:
-            pass
-        st.configure("Mode.TRadiobutton", background="#eef2f8", foreground="#46505c",
-                     padding=(s(15), s(7)), font=("Microsoft YaHei UI", 9), borderwidth=0)
-        st.map("Mode.TRadiobutton",
-               background=[("selected", ACCENT), ("active", "#e2e9f7")],
-               foreground=[("selected", "#ffffff"), ("active", "#2b3540")])
-        st.configure("Treeview", background=CARD, fieldbackground=CARD, borderwidth=0,
-                     rowheight=s(30), font=("Microsoft YaHei UI", 9))
-        st.configure("Treeview.Heading", background="#f5f8fc", foreground="#5b6672",
-                     relief="flat", font=("Microsoft YaHei UI", 9, "bold"),
-                     padding=(s(8), s(7)))
-        st.map("Treeview.Heading", background=[("active", "#eaf0fa")])
-        st.map("Treeview", background=[("selected", "#dbe7ff")], foreground=[("selected", INK)])
-
     def _build_ui(self):
         root = self.root
         root.title(APP_TITLE)
@@ -350,7 +475,7 @@ class App:
             return int(round(v * self.scale))
 
         self._imgs = {}
-        self._setup_styles(s)
+        _setup_styles(s)
 
         # 适应多种分辨率：不超过屏幕可用区域，小屏自动收缩并居中
         sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
@@ -734,7 +859,7 @@ class App:
             cx_keyring.auto_cookie_key()
             if not cx_keyring.cookie_readable():
                 self._set_status(
-                    "未检测到 CookieKey：把 CookieKey 放回程序目录即可使用已保存的登录状态；"
+                    "未检测到 CookieKey：把 CookieKey 放回 keys 文件夹即可使用已保存的登录状态；"
                     "也可以插入管理 U 盘，或用备份钥匙解锁。", "err")
                 return
         self._run(mode=m)
@@ -889,7 +1014,7 @@ class App:
         if reason.startswith("usb"):
             tail = "重新插入管理 U 盘，再点右下角齿轮「重新检测」即可恢复。"
         else:
-            tail = "把 CookieKey 放回程序目录（或重新插入管理 U 盘）后即可恢复。"
+            tail = "把 CookieKey 放回 keys 文件夹（或重新插入管理 U 盘）后即可恢复。"
         self._set_status("检测到密钥已失效，已关闭查看权限。" + tail, "err")
 
     def _logout(self):
@@ -921,7 +1046,7 @@ class App:
             cx_keyring.auto_cookie_key()
             if not cx_keyring.cookie_readable():
                 self._set_status(
-                    "未检测到 CookieKey：把 CookieKey 放回程序目录即可使用；"
+                    "未检测到 CookieKey：把 CookieKey 放回 keys 文件夹即可使用；"
                     "也可以插入管理 U 盘，或用备份钥匙解锁。", "err")
                 return
         self.busy = True
@@ -935,7 +1060,7 @@ class App:
     def _worker(self, mode):
         try:
             if mode == "saved" and not cx_keyring.cookie_readable():
-                raise cx.ChaoxingError("未检测到 CookieKey：请把它放回程序目录，"
+                raise cx.ChaoxingError("未检测到 CookieKey：请把它放回 keys 文件夹，"
                                        "或插入管理 U 盘 / 用备份钥匙解锁")
             if mode == "account":
                 cookies, msg = cx_login.chaoxing_login(
@@ -969,7 +1094,7 @@ class App:
                 if not cookies:
                     if not cx_keyring.cookie_readable():
                         raise cx.ChaoxingError(
-                            "未检测到 CookieKey：把 CookieKey 放回程序目录即可使用"
+                            "未检测到 CookieKey：把 CookieKey 放回 keys 文件夹即可使用"
                             "已保存的登录状态；也可以插入管理 U 盘或用备份钥匙解锁")
                     raise cx.ChaoxingError(
                         "本机保存的登录状态解不开（可能是别的 CookieKey、别的电脑保存的），"
@@ -1238,13 +1363,14 @@ class MembersDialog(tk.Toplevel):
         try:
             sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
             dw = min(880, max(600, int((sw - s(48)) / self.scale)))
-            dh = min(660, max(430, int((sh - s(96)) / self.scale)))
+            # 初始只显示 CookieKey 受限面板，高度先给小的；有高级权限时 _relayout 会撑开
+            dh = min(660, max(300, int((sh - s(96)) / self.scale)))
             self.geometry("%dx%d+%d+%d" % (
                 s(dw), s(dh),
                 max(0, (sw - s(dw)) // 2), max(0, (sh - s(dh)) // 2 - s(20))))
-            self.minsize(s(min(700, dw)), s(min(440, dh)))
+            self.minsize(s(min(700, dw)), s(250))
         except Exception:
-            self.geometry("880x660")
+            self.geometry("880x300")
         self.configure(bg=BG)
         self.transient(master)
         self._devices = []
@@ -1351,9 +1477,6 @@ class MembersDialog(tk.Toplevel):
                                  image=self._img("cookie.png"), compound="left",
                                  command=self._create_cookie_key)
         self.btn_ck.pack(side="left", padx=s(8))
-        ttk.Button(row1, text="检测目录…", style="Ghost.TButton",
-                   image=self._img("key.png"), compound="left",
-                   command=self._open_scan_dirs).pack(side="left")
 
         # CookieKey 状态行
         self.lbl_ck = tk.Label(inner, text="", bg=CARD, fg=SUB,
@@ -1361,25 +1484,20 @@ class MembersDialog(tk.Toplevel):
                                justify="left", wraplength=s(760))
         self.lbl_ck.pack(fill="x", pady=(s(8), 0))
 
-        # 与 U 盘相关的操作：没插 U 盘时整行隐藏
+        # 与 U 盘相关的操作：只在「有高级权限」或「刚插上未注册的 U 盘」时出现
         self.row2 = tk.Frame(inner, bg=CARD)
-        self.row2.pack(fill="x", pady=(s(10), 0))
         self.btn_register = ttk.Button(self.row2, text="注册当前 U 盘", style="Ghost.TButton",
                                        image=self._img("key.png"), compound="left",
                                        command=self._do_register, state="disabled")
-        self.btn_register.pack(side="left")
         self.btn_unlock_bak = ttk.Button(self.row2, text="用备份钥匙解锁…", style="Ghost.TButton",
                                          image=self._img("unlock.png"), compound="left",
                                          command=self._unlock_with_backup, state="disabled")
-        self.btn_unlock_bak.pack(side="left", padx=s(8))
         self.btn_backup = ttk.Button(self.row2, text="生成备份钥匙…", style="Ghost.TButton",
                                      image=self._img("shield.png"), compound="left",
                                      command=self._create_backup, state="disabled")
-        self.btn_backup.pack(side="left")
 
-        # 成员卡（没插 U 盘时整块隐藏）
+        # 成员卡（没有高级权限时整块隐藏）
         listcard = tk.Frame(wrap, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
-        listcard.pack(fill="both", expand=True, pady=(s(12), 0))
         self.listcard = listcard
         lhead = tk.Frame(listcard, bg=CARD, padx=s(16), pady=s(10))
         lhead.pack(fill="x")
@@ -1425,6 +1543,10 @@ class MembersDialog(tk.Toplevel):
 
     def _scan(self):
         try:
+            try:
+                cx_keyring.auto_cookie_key()      # 打开窗口时先探一次 keys/ 里的钥匙
+            except Exception:
+                pass
             devs = cx_hwid.list_usb_devices()
             st = cx_members.gate_state(devices=devs)
             level = cx_keyring.access_level()
@@ -1434,27 +1556,51 @@ class MembersDialog(tk.Toplevel):
             err = str(e)
             self._post(lambda: self.lbl_key.configure(text="检测失败：" + err, fg="#d64545"))
 
-    def _toggle_usb(self, has_usb):
-        """没插 U 盘时，与 U 盘相关的控件（成员名单/注册/备份钥匙）整块隐藏。"""
-        if getattr(self, "_usb_shown", None) == has_usb:
-            return
-        self._usb_shown = has_usb
+    def _relayout(self, has_usb, advanced, unregistered):
+        """按当前权限摆放面板：默认只露出 CookieKey 那一块（受限视图）。
+
+        · 没有高级权限 —— 不显示成员名单，也不显示 U 盘相关的按钮；
+        · 检测到未注册的 U 盘 —— 只多给一个「注册当前 U 盘」；
+        · 拿到高级权限 —— 才展开 U 盘操作与硬件成员名单。
+        """
         s = self._s
-        if has_usb:
-            self.listcard.pack(fill="both", expand=True, pady=(s(12), 0))
+        key = (bool(has_usb), bool(advanced), bool(unregistered))
+        if getattr(self, "_layout_key", None) == key:
+            return
+        self._layout_key = key
+
+        show_row = has_usb and (advanced or unregistered)
+        show_list = has_usb and advanced
+
+        for b in (self.btn_register, self.btn_unlock_bak, self.btn_backup):
+            b.pack_forget()
+        if has_usb and unregistered:
+            self.btn_register.pack(side="left", padx=(0, s(8)))
+        if has_usb and not advanced:
+            self.btn_unlock_bak.pack(side="left", padx=(0, s(8)))
+        if has_usb and advanced:
+            self.btn_backup.pack(side="left", padx=(0, s(8)))
+
+        if show_row:
             self.row2.pack(fill="x", pady=(s(10), 0))
         else:
-            self.listcard.pack_forget()
             self.row2.pack_forget()
+        if show_list:
+            # before=foot：成员卡要排在底部说明的上方，否则重新 pack 会跑到说明后面
+            self.listcard.pack(fill="both", expand=True, pady=(s(12), 0),
+                               before=self.lbl_foot)
+        else:
+            self.listcard.pack_forget()
+
         try:
             self.update_idletasks()
             w = self.winfo_width()
             if w <= 1:
                 w = s(880)
-            h = max(self.winfo_reqheight(), s(430) if has_usb else s(250))
+            h = max(self.winfo_reqheight(), s(430) if show_list else s(220))
             h = min(h, self.winfo_screenheight() - s(80))
-            self.minsize(min(w, s(700)), s(250))
-            self.geometry("%dx%d" % (w, h))   # 高度随内容收缩/恢复
+            self.minsize(min(w, s(700)), s(220))
+            self.geometry("%dx%d" % (w, h))   # 高度随内容收缩/展开
         except Exception:
             pass
 
@@ -1462,51 +1608,48 @@ class MembersDialog(tk.Toplevel):
         self._devices = devs
         self._state = st
         self._members = members or []
-        unlocked = st["state"] == "open"
+        advanced = level == "full"          # 高级权限：U 盘或备份钥匙解开了主密钥
         has_usb = bool(devs)
         ck = cx_keyring.cookie_key_state()
 
         # ---- 状态：只区分「已解锁 / 未解锁」
-        if unlocked or level in ("full", "cookie"):
+        if advanced or level == "cookie":
             self.lbl_key.configure(text="已解锁", fg="#1f9d57")
         else:
             self.lbl_key.configure(text="未解锁", fg="#d64545")
 
-        # ---- CookieKey 与自动检测目录
-        dirs = cx_keyring.extra_scan_dirs()
+        # ---- CookieKey
         if ck["exists"]:
             self.btn_ck.configure(text="打开 CookieKey 位置")
-            line = ("CookieKey：已创建 · 仅限本机使用（可在本机复制或更换目录）\n位置：%s"
-                    % ck["path"])
+            line = ("CookieKey：已创建 · 仅限本机使用（可复制，放回 keys 文件夹即可）\n"
+                    "位置：%s" % ck["path"])
         elif ck["foreign"]:
             self.btn_ck.configure(text="CookieKey 不可用")
-            line = ("CookieKey：程序目录里的文件属于另一台电脑，本机无法使用 —— "
-                    "它不能在本机解开；如需在本机使用，请点左侧按钮换一个新的")
+            line = ("CookieKey：keys 文件夹里的文件属于另一台电脑，本机无法使用 —— "
+                    "它不能在本机解开；如需在本机使用，请点左侧按钮生成一个新的")
         elif ck["corrupt"]:
             self.btn_ck.configure(text="CookieKey 已损坏")
-            line = "CookieKey：文件已损坏无法读取 —— 点左侧按钮可重新创建（原文件会改名备份）"
+            line = "CookieKey：文件已损坏无法读取 —— 点左侧按钮可重新生成"
         elif ck["locked"]:
             self.btn_ck.configure(text="CookieKey 文件缺失")
-            line = ("CookieKey：本机已创建过，但文件不在了 —— 请把备份或复制出去的 CookieKey "
-                    "放回程序目录（每台电脑只能创建一次，无法重新生成）")
+            line = ("CookieKey：本机已创建过，但文件不在了 —— 请把备份或复制出去的 "
+                    "CookieKey 放回 keys 文件夹（每台电脑只能创建一次，无法重新生成）")
         else:
             self.btn_ck.configure(text="创建 CookieKey…")
             line = ("CookieKey：未创建 —— 创建一次即可长期使用；只在这台电脑上有效"
                     "（每台电脑只能创建一次）")
-        if dirs:
-            line += "\n自动检测目录：程序目录 + %d 个自定义目录" % len(dirs)
         self.lbl_ck.configure(text=line)
 
-        # ---- 与 U 盘相关的控件：没有 U 盘就不显示
-        self._toggle_usb(has_usb)
+        # ---- 面板：默认只显示上面这一块（受限视图）
+        self._relayout(has_usb, advanced, st["state"] == "unregistered")
         self.btn_register.configure(
             state="normal" if (has_usb and st["state"] == "unregistered") else "disabled")
-        self.btn_backup.configure(state="normal" if (has_usb and unlocked) else "disabled")
-        self.btn_unlock_bak.configure(state="normal" if (has_usb and not unlocked) else "disabled")
+        self.btn_backup.configure(state="normal" if (has_usb and advanced) else "disabled")
+        self.btn_unlock_bak.configure(state="normal" if (has_usb and not advanced) else "disabled")
 
         for iid in self.tree.get_children():
             self.tree.delete(iid)
-        if unlocked and members is not None:
+        if advanced and members is not None:
             for i, m in enumerate(members):
                 self.tree.insert("", "end", values=(
                     m.get("name", ""), m.get("type", ""),
@@ -1518,18 +1661,17 @@ class MembersDialog(tk.Toplevel):
         else:
             self.btn_add.configure(state="disabled")
             self.btn_remove.configure(state="disabled")
-            msg = "解锁后可查看名单" if not unlocked else "名单无法解密（文件可能被损坏）"
+            msg = "解锁后可查看名单" if not advanced else "名单无法解密（文件可能被损坏）"
             self.tree.insert("", "end", values=("🔒 " + msg, "", "", ""))
-            self.lbl_foot.configure(text="为防止泄露，未解锁时不显示任何成员信息。")
 
-        if not has_usb:
+        # 底部说明只在真正展开高级面板时出现；受限视图保持干净
+        if not (has_usb and advanced):
             self.lbl_foot.configure(text="")
-        elif st["state"] == "unregistered":
-            self.lbl_foot.configure(text="检测到 %d 个 U 盘：%s" % (
-                len(devs), "、".join(
-                    d["model"] + ("(" + d["letters"] + ")" if d.get("letters") else "") for d in devs)))
-        elif st["state"] == "locked":
-            self.lbl_foot.configure(text="检测到 U 盘，但它不是已注册的管理 U 盘。")
+        elif members is not None:
+            self.lbl_foot.configure(text="当前共 %d 个成员。指纹仅显示前后若干位，完整值加密保存。"
+                                        % len(members))
+        else:
+            self.lbl_foot.configure(text="名单无法解密（文件可能被损坏）。")
 
     # ------------------------------------------------------------ 操作
     def _choose_device(self):
@@ -1621,14 +1763,13 @@ class MembersDialog(tk.Toplevel):
         if state["locked"]:
             extra = ""
             if state["foreign"]:
-                extra = "\n（注意：现在程序目录里的这个文件属于别的电脑，不是你本机的钥匙）"
+                extra = "\n（注意：keys 文件夹里的这个文件属于别的电脑，不是你本机的钥匙）"
             elif state["corrupt"]:
-                extra = "\n（注意：程序目录里的 CookieKey 文件已损坏）"
+                extra = "\n（注意：keys 文件夹里的 CookieKey 文件已损坏）"
             messagebox.showinfo(
                 "CookieKey",
                 "本机已经创建过 CookieKey，不能再生成一次。\n\n"
-                "请把之前复制出去的 CookieKey 放回程序目录，或点「检测目录…」"
-                "把它所在的文件夹加进自动检测列表。" + extra,
+                "请把之前复制出去的 CookieKey 放回 keys 文件夹（程序目录下）即可继续使用。" + extra,
                 parent=self)
             return
         if state["foreign"] or state["corrupt"]:
@@ -1654,7 +1795,7 @@ class MembersDialog(tk.Toplevel):
         tip = ("CookieKey 是这台电脑的 Cookie 钥匙：\n\n"
                "· 每台电脑只能创建一次，删除后无法重新生成；\n"
                "· 与本机硬件绑定：只在这台电脑上有效，复制到别的电脑解不开；\n"
-               "· 在本机可以随意复制、换目录，点「检测目录…」加进去就能自动识别；\n"
+               "· 会保存在程序目录的 keys 文件夹里；在本机可以复制一份作为备份；\n"
                "· 创建不需要 U 盘，也不影响成员名单的 U 盘保护。\n\n"
                "现在创建？")
         if not messagebox.askyesno("创建 CookieKey", tip, parent=self):
@@ -1693,10 +1834,6 @@ class MembersDialog(tk.Toplevel):
                 messagebox.showinfo("CookieKey", path, parent=self)
         except Exception as e:  # noqa: BLE001
             messagebox.showinfo("CookieKey", "%s\n(%s)" % (path, e), parent=self)
-
-    def _open_scan_dirs(self):
-        ScanDirsDialog(self)
-        self.refresh()
 
     def _unlock_with_backup(self):
         path = filedialog.askopenfilename(
@@ -1741,92 +1878,6 @@ class MembersDialog(tk.Toplevel):
         if not ok:
             messagebox.showwarning("隐私查看权限", msg, parent=self)
         self.refresh()
-
-
-class ScanDirsDialog(tk.Toplevel):
-    """管理 CookieKey 的额外自动检测目录（CookieKey 复制到别处也能自动识别）。"""
-
-    def __init__(self, master):
-        super().__init__(master)
-        self.title("CookieKey 自动检测目录")
-        self.configure(bg=BG)
-        self.transient(master)
-        self._s = getattr(master, "_s", lambda v: v)
-        s = self._s
-        try:
-            w, h = s(640), s(380)
-            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-            w, h = min(w, sw - s(40)), min(h, sh - s(80))
-            self.geometry("%dx%d+%d+%d" % (w, h, max(0, (sw - w) // 2), max(0, (sh - h) // 2)))
-        except Exception:
-            self.geometry("640x380")
-        self.resizable(True, True)
-
-        wrap = tk.Frame(self, bg=BG, padx=s(16), pady=s(14))
-        wrap.pack(fill="both", expand=True)
-        tk.Label(wrap, text="CookieKey 自动检测目录", bg=BG, fg=INK,
-                 font=("Microsoft YaHei UI", 12, "bold")).pack(anchor="w")
-        tk.Label(wrap, text="软件启动与每 10 秒复核时，会依次在下列目录里查找 CookieKey。"
-                            "把 CookieKey 复制到这些目录中的任意一个，都能自动识别。",
-                 bg=BG, fg=SUB, font=("Microsoft YaHei UI", 9), anchor="w", justify="left",
-                 wraplength=s(560)).pack(anchor="w", pady=(s(4), s(10)))
-
-        box = tk.Frame(wrap, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
-        box.pack(fill="both", expand=True)
-        self.lst = tk.Listbox(box, activestyle="none", bg="#ffffff", fg=INK,
-                              selectbackground="#e8f0ff", selectforeground=INK,
-                              highlightthickness=0, bd=0,
-                              font=("Microsoft YaHei UI", 9))
-        sb = Rail(box, command=self.lst.yview, bg="#ffffff")
-        self.lst.configure(yscrollcommand=sb.set)
-        self.lst.pack(side="left", fill="both", expand=True, padx=(s(8), 0), pady=s(8))
-        sb.pack(side="right", fill="y", pady=s(8))
-
-        row = tk.Frame(wrap, bg=BG)
-        row.pack(fill="x", pady=(s(10), 0))
-        ttk.Button(row, text="添加目录…", style="Accent.TButton",
-                   command=self._add).pack(side="left")
-        ttk.Button(row, text="移除选中", style="Ghost.TButton",
-                   image=self._img("trash.png"), compound="left",
-                   command=self._remove).pack(side="left", padx=s(8))
-        ttk.Button(row, text="关闭", style="Ghost.TButton",
-                   command=self.destroy).pack(side="right")
-        self._reload()
-
-    def _img(self, name):
-        try:
-            p = _resource("assets", name)
-            return tk.PhotoImage(file=p) if os.path.exists(p) else None
-        except Exception:
-            return None
-
-    def _reload(self):
-        self.lst.delete(0, "end")
-        self.lst.insert("end", "%s   （程序目录，始终检测）" % cx_keyring._app_dir())
-        self._dirs = cx_keyring.extra_scan_dirs()
-        for d in self._dirs:
-            self.lst.insert("end", d)
-        if not self._dirs:
-            self.lst.insert("end", "（还没有添加其他目录）")
-            self.lst.itemconfig("end", foreground="#9aa5b1")
-
-    def _add(self):
-        d = filedialog.askdirectory(parent=self, title="选择要自动检测 CookieKey 的目录")
-        if not d:
-            return
-        cx_keyring.add_scan_dir(d)
-        cx_keyring.auto_cookie_key()
-        self._reload()
-
-    def _remove(self):
-        sel = self.lst.curselection()
-        if not sel:
-            return
-        i = sel[0] - 1          # 第 0 项是程序目录，不可移除
-        if i < 0 or i >= len(self._dirs):
-            return
-        cx_keyring.remove_scan_dir(self._dirs[i])
-        self._reload()
 
 
 class PassDialog(tk.Toplevel):
@@ -2016,7 +2067,7 @@ def _selftest(argv):
         tmp3 = tempfile.mkdtemp(prefix="cxnoauth_")
         orig_ckp = cx_keyring.cookie_key_path
         try:
-            # 假装程序目录里没有 CookieKey，否则会自动识别并放行（那是另一条自检）
+            # 假装 keys 文件夹里没有 CookieKey，否则会自动识别并放行（那是另一条自检）
             cx_keyring.cookie_key_path = lambda base_dir=None: os.path.join(tmp3, "NoCookieKey")
             cx_keyring.lock()
             created = cx_vault.save_session({"_uid": "u2"}, base_dir=tmp3)
@@ -2050,14 +2101,12 @@ def _selftest(argv):
         tmp5 = tempfile.mkdtemp(prefix="cxckonly_")
         orig_ckp5 = cx_keyring.cookie_key_path
         orig_mark5 = cx_keyring.cookie_key_mark_path
-        orig_dirs5 = cx_keyring.ck_dirs_path
         orig_ms5 = cx_guard.machine_secret
         try:
             ckp5 = os.path.join(tmp5, "CookieKey")
-            # 全部隔离到临时目录，避免碰到真实的 CookieKey / 标记 / 检测目录
+            # 全部隔离到临时目录，避免碰到真实的 CookieKey 与标记
             cx_keyring.cookie_key_path = lambda base_dir=None: os.path.join(tmp5, "__none__")
             cx_keyring.cookie_key_mark_path = lambda: os.path.join(tmp5, ".lock")
-            cx_keyring.ck_dirs_path = lambda: os.path.join(tmp5, ".dirs")
             cx_keyring.lock()
             made = cx_keyring.create_cookie_key(ckp5)[0]          # 不需要任何权限
             again = cx_keyring.create_cookie_key(ckp5)[0]         # 每台电脑只能创建一次
@@ -2065,7 +2114,7 @@ def _selftest(argv):
             saved5 = cx_vault.save_session({"_uid": "ck1"}, base_dir=tmp5)
             cx_keyring.lock()
             blocked = cx_vault.load_session(base_dir=tmp5) is None
-            # 把 CookieKey 放到程序目录：自动识别即可读取
+            # 把 CookieKey 放回 keys 文件夹：自动识别即可读取
             cx_keyring.cookie_key_path = lambda base_dir=None: ckp5
             cx_keyring.lock()
             ro = cx_vault.load_session(base_dir=tmp5)
@@ -2088,9 +2137,49 @@ def _selftest(argv):
             cx_guard.machine_secret = orig_ms5
             cx_keyring.cookie_key_path = orig_ckp5
             cx_keyring.cookie_key_mark_path = orig_mark5
-            cx_keyring.ck_dirs_path = orig_dirs5
             shutil.rmtree(tmp5, ignore_errors=True)
             cx_keyring.lock()
+
+        # 首次运行声明：标记写一次后不再弹
+        tmp6 = tempfile.mkdtemp(prefix="cxeula_")
+        orig_pp = cx_eula._primary_path
+        orig_fb = cx_eula._fallback_path
+        try:
+            cx_eula._primary_path = lambda: os.path.join(tmp6, ".eula.ok")
+            cx_eula._fallback_path = lambda: os.path.join(tmp6, "fb", ".eula.ok")
+            first_open = cx_eula.accepted()
+            wrote = cx_eula.accept()
+            second_open = cx_eula.accepted()
+            lines.append(f"eula: first_open={first_open} write={wrote} "
+                         f"second_open={second_open}")
+        finally:
+            cx_eula._primary_path = orig_pp
+            cx_eula._fallback_path = orig_fb
+            shutil.rmtree(tmp6, ignore_errors=True)
+
+        # CookieKey 统一收进 keys/：旧布局（根目录）会被自动搬迁
+        tmp7 = tempfile.mkdtemp(prefix="cxlayout_")
+        orig_home7 = cx_keyring.ck_home_dir
+        orig_leg7 = cx_keyring.legacy_cookie_key_path
+        orig_legm7 = cx_keyring.legacy_mark_path
+        try:
+            cx_keyring.ck_home_dir = lambda base_dir=None: os.path.join(tmp7, "keys")
+            cx_keyring.legacy_cookie_key_path = lambda: os.path.join(tmp7, "CookieKey")
+            cx_keyring.legacy_mark_path = lambda: os.path.join(tmp7, ".cookiekey.lock")
+            with open(os.path.join(tmp7, "CookieKey"), "wb") as f:
+                f.write(b"CXCK1\x00legacy")
+            with open(os.path.join(tmp7, ".cookiekey.lock"), "w", encoding="utf-8") as f:
+                f.write("{}")
+            moved = cx_keyring.migrate_layout()
+            in_keys = os.path.exists(os.path.join(tmp7, "keys", "CookieKey"))
+            legacy_gone = not os.path.exists(os.path.join(tmp7, "CookieKey"))
+            lines.append(f"layout: moved={moved} in_keys={in_keys} "
+                         f"legacy_gone={legacy_gone}")
+        finally:
+            cx_keyring.ck_home_dir = orig_home7
+            cx_keyring.legacy_cookie_key_path = orig_leg7
+            cx_keyring.legacy_mark_path = orig_legm7
+            shutil.rmtree(tmp7, ignore_errors=True)
 
         # U 盘门控自检（临时目录 + 假设备，不碰真实钥匙）
         tmp2 = tempfile.mkdtemp(prefix="cxusb_")
@@ -2162,8 +2251,18 @@ def main():
         _selftest(sys.argv[idx + 1:])
         return
     _enable_hidpi()
+    try:
+        cx_keyring.migrate_layout()   # 旧版把 CookieKey 放在根目录，这里搬进 keys/
+    except Exception:
+        pass
     root = tk.Tk()
+    root.withdraw()
+    if not cx_eula.accepted():
+        if not _ask_eula(root):
+            root.destroy()
+            return
     App(root)
+    root.deiconify()
     root.mainloop()
 
 

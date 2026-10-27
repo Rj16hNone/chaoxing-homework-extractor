@@ -202,7 +202,7 @@ def secure_file_permissions(dir_path, file_path):
 def save_session(cookies, extra=None, base_dir=None):
     """加密保存登录状态。返回 bool（失败不抛异常，避免影响主流程）。
 
-    创建 / 更新不需要任何解锁权限：程序目录里有 CookieKey 就用它加密，
+    创建 / 更新不需要任何解锁权限：keys 文件夹里有 CookieKey 就用它加密，
     完整解锁时用主密钥派生的正式子密钥，两者都没有才退回机器绑定密钥；
     等下次解锁读取时会透明重加密为正式密钥。
     """
@@ -246,7 +246,7 @@ def load_session(base_dir=None):
     读取属于「使用」方向，必须已解锁（管理 U 盘 / 备份钥匙 / CookieKey）。
     若文件是未解锁时用机器绑定密钥创建的，解锁读到后会自动重加密为正式密钥。
     """
-    # 入口处自检一次 CookieKey：程序目录里只要有它就直接可用，不依赖调用方顺序。
+    # 入口处自检一次 CookieKey：keys 文件夹里只要有它就直接可用，不依赖调用方顺序。
     # 已经载入的密钥（可能来自别的路径）不去动它，避免把调用方的选择覆盖掉。
     if cx_keyring.access_level() == "none":
         try:

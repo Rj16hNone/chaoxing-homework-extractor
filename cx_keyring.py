@@ -43,7 +43,7 @@ COOKIE_KEY_MAGIC = b"CXCK1\x00"
 COOKIE_KEY_VER_STANDALONE = 2     # v2：独立随机密钥（旧版，未绑机器）
 COOKIE_KEY_VER_MACHINE = 3        # v3：绑本机指纹，复制到别的电脑无法解封
 COOKIE_KEY_MARK = ".cookiekey.lock"   # 记录「本机已创建过」，保证只能创建一次
-CK_DIRS_FILE = ".cookiekey.dirs"      # 额外自动检测目录
+CK_HOME = "keys"                      # CookieKey 的统一存放文件夹（程序只扫描这里）
 MASTER_LEN = 32
 SALT_LEN = 16
 PBKDF2_ROUNDS = 200000
@@ -219,7 +219,7 @@ def vault_key(tier="cookie"):
 def write_tier():
     """写入档位：cookie（正式子密钥）/ machine（机器绑定）。
 
-    没有完整权限时先现场探一次程序目录里的 CookieKey —— 只要它在，
+    没有完整权限时先现场探一次 keys/ 文件夹里的 CookieKey —— 只要它在，
     就用它加密落盘，这样这份密文日后靠 CookieKey 就能解开；
     只有连 CookieKey 都没有时才退回机器绑定密钥。
     """
@@ -255,9 +255,9 @@ def set_master(mk, src):
     _mk_source = src
     _ck = None
     _ck_source = ""
-    # 程序目录 / 检测目录里若有 CookieKey，仍然优先用它加密：
+    # keys/ 文件夹里若有 CookieKey，仍然优先用它加密：
     # 这样即使插着 U 盘解锁，写出的 Cookie 文件也能被 CookieKey 读回
-    #（CookieKey 与本机绑定，本机任意目录复制后仍可用）。
+    #（CookieKey 与本机绑定，本机复制后仍可用）。
     p = find_cookie_key()
     if p:
         load_cookie_key(p)
@@ -341,16 +341,70 @@ def try_unlock_usb(devices=None, base_dir=None):
 
 # ------------------------------------------------------------------ CookieKey
 # 定位：**独立的 Cookie 钥匙**，不再从主密钥派生。
+#   · 统一放在程序目录下的 keys/ 文件夹里，程序只扫描这一个文件夹；
 #   · 每台电脑必须且只能创建一次（建完写标记文件，之后拒绝再建）；
 #   · v3 起与**本机指纹**绑定：文件只在这台电脑上能解，复制到别的电脑等于废文件；
-#     同一台电脑上可以随意复制/换目录（自动检测目录就是为这个准备的）；
+#     同一台电脑上可以随意复制（放回 keys/ 即可）；
 #   · 创建不需要 U 盘，也不需要任何解锁权限。
+def ck_home_dir(base_dir=None):
+    """CookieKey 的存放文件夹（默认 <程序目录>/keys）。"""
+    return os.path.join(_app_dir() if base_dir is None else base_dir, CK_HOME)
+
+
+def ensure_ck_home(base_dir=None):
+    """确保存放文件夹存在；返回目录（建不出来时返回 None）。"""
+    d = ck_home_dir(base_dir)
+    try:
+        os.makedirs(d, exist_ok=True)
+        return d
+    except OSError:
+        return None
+
+
 def cookie_key_path(base_dir=None):
-    return os.path.join(_app_dir() if base_dir is None else base_dir, COOKIE_KEY_NAME)
+    return os.path.join(ck_home_dir(base_dir), COOKIE_KEY_NAME)
 
 
-def cookie_key_mark_path():
+def cookie_key_mark_path(base_dir=None):
+    return os.path.join(ck_home_dir(base_dir), COOKIE_KEY_MARK)
+
+
+def legacy_cookie_key_path():
+    """旧布局：CookieKey 裸露在程序根目录（仅用于自动迁移与兜底读取）。"""
+    return os.path.join(_app_dir(), COOKIE_KEY_NAME)
+
+
+def legacy_mark_path():
     return os.path.join(_app_dir(), COOKIE_KEY_MARK)
+
+
+def migrate_layout():
+    """把旧布局（CookieKey 在程序根目录）搬进 keys/ 文件夹。
+
+    只搬文件、不改内容，所以已加密的登录状态照旧能解。
+    返回搬动的文件数（0 表示无需迁移）。
+    """
+    dst_dir = ensure_ck_home()
+    if not dst_dir:
+        return 0
+    moved = 0
+    for src, dst in ((legacy_cookie_key_path(), cookie_key_path()),
+                     (legacy_mark_path(), cookie_key_mark_path())):
+        if not os.path.isfile(src) or os.path.exists(dst):
+            continue
+        try:
+            os.replace(src, dst)          # 同一分区：原子改名
+        except OSError:
+            try:                          # 跨分区 / 被占用：退化为复制
+                with open(src, "rb") as f:
+                    data = f.read()
+                with open(dst, "wb") as f:
+                    f.write(data)
+                os.remove(src)
+            except OSError:
+                continue
+        moved += 1
+    return moved
 
 
 def _ck_kdf(salt):
@@ -456,7 +510,9 @@ def cookie_key_state(path=None):
       foreign —— 文件是绑定格式但解不开：基本等于「别的电脑创建的」
       locked  —— 本机已经创建过（有标记），即便文件暂时不在了也不允许再建
     """
-    path = path or _first_present_ck()
+    if path is None:
+        migrate_layout()           # 旧布局先搬进 keys/，再报状态
+        path = _first_present_ck()
     mark = None
     try:
         with open(cookie_key_mark_path(), "r", encoding="utf-8") as f:
@@ -492,18 +548,24 @@ def create_cookie_key(path=None):
 
     落盘格式为 v3：用「本机指纹」包裹密钥，因此该文件只在创建它的这台电脑上可用。
     """
-    path = path or cookie_key_path()
+    if path is None:
+        migrate_layout()               # 旧布局先搬进 keys/
+        path = cookie_key_path()
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    except OSError:
+        pass
     if has_cookie_key(path):
         info = cookie_key_info(path)
         if info["foreign"]:
-            return False, ("程序目录里的 CookieKey 是在另一台电脑上创建的，本机无法使用。\n"
+            return False, ("keys 文件夹里的 CookieKey 是在另一台电脑上创建的，本机无法使用。\n"
                            "（Key 与本机硬件绑定，复制过来的文件只能留在原电脑用）")
         if info["usable"]:
             return False, "本机已有 CookieKey（每台电脑只能创建一次）。"
-        return False, "程序目录里的 CookieKey 文件已损坏，请删除后重新创建。"
+        return False, "keys 文件夹里的 CookieKey 文件已损坏，请删除后重新创建。"
     if os.path.exists(cookie_key_mark_path()):
         return False, ("本机已经创建过 CookieKey，不能重复生成。\n"
-                       "请把之前备份/复制的 CookieKey 放回程序目录即可继续使用。")
+                       "请把之前备份/复制的 CookieKey 放回 keys 文件夹即可继续使用。")
     ck = os.urandom(32)
     salt = os.urandom(SALT_LEN)
     nonce = os.urandom(12)
@@ -525,55 +587,22 @@ def create_cookie_key(path=None):
     return True, path
 
 
-# ------------------------------------------------------------- 额外自动检测目录
-def ck_dirs_path():
-    return os.path.join(_app_dir(), CK_DIRS_FILE)
-
-
-def extra_scan_dirs():
-    try:
-        with open(ck_dirs_path(), "r", encoding="utf-8") as f:
-            dirs = json.load(f)
-        return [d for d in dirs if isinstance(d, str) and d]
-    except Exception:
-        return []
-
-
-def set_extra_scan_dirs(dirs):
-    uniq = []
-    for d in dirs:
-        d = os.path.abspath(d)
-        if d not in uniq:
-            uniq.append(d)
-    try:
-        with open(ck_dirs_path(), "w", encoding="utf-8") as f:
-            json.dump(uniq, f, ensure_ascii=False, indent=1)
-    except OSError:
-        pass
-    return uniq
-
-
-def add_scan_dir(d):
-    return set_extra_scan_dirs(extra_scan_dirs() + [d])
-
-
-def remove_scan_dir(d):
-    target = os.path.abspath(d)
-    return set_extra_scan_dirs([x for x in extra_scan_dirs() if os.path.abspath(x) != target])
-
-
+# ------------------------------------------------------------- CookieKey 查找
 def scan_candidates():
-    """按优先级列出会去查找 CookieKey 的位置。"""
+    """程序会去查找 CookieKey 的位置 —— 只有 keys/ 文件夹。
+
+    （附加的第二个路径仅用于兼容尚未迁移的旧布局：文件还在程序根目录时也能读到；
+      迁移成功后它自然不再存在。）
+    """
     out = [cookie_key_path()]
-    for d in extra_scan_dirs():
-        p = os.path.join(d, COOKIE_KEY_NAME)
-        if p not in out:
-            out.append(p)
+    legacy = legacy_cookie_key_path()
+    if legacy not in out:
+        out.append(legacy)
     return out
 
 
 def find_cookie_key():
-    """在程序目录 + 额外检测目录里找第一个可用的 CookieKey，返回路径。"""
+    """在 keys/ 文件夹里找可用的 CookieKey，返回路径。"""
     for p in scan_candidates():
         if _read_cookie_key(p) is not None:
             return p
@@ -614,7 +643,7 @@ def cookie_key_info(path=None):
 def load_cookie_key(path=None):
     """载入 CookieKey：只授予 Cookie 读写权限，不触碰成员与主密钥。
 
-    path 省略时按「程序目录 → 额外检测目录」顺序自动查找。
+    path 省略时在 keys/ 文件夹里自动查找。
     若读到的是旧版（未绑机器）的钥匙，会顺手原地升级为绑定本机的格式。
     """
     global _ck, _ck_source
@@ -638,7 +667,7 @@ def auto_cookie_key(path=None):
     """没有完整权限时，现场探测一次 CookieKey。
 
     「已保存的登录状态」只依赖 CookieKey：只要探到就可以直接使用，
-    不需要插 U 盘、也不需要备份钥匙。会扫描程序目录与所有额外检测目录。
+    不需要插 U 盘、也不需要备份钥匙。只在 keys/ 文件夹里查找。
     """
     if access_level() != "none":
         return access_level() == "cookie"
@@ -801,16 +830,18 @@ def wipe(base_dir=None):
     for p in (store, store + ".new", os.path.join(dir_path, "members.dat"),
               os.path.join(dir_path, "members.dat.new"),
               os.path.join(dir_path, "key.dat"),    # key.dat 为旧版遗留文件
-              cookie_key_path()):                   # 子密钥一并销毁
+              cookie_key_path(), cookie_key_mark_path(),   # 子密钥与「已创建」标记一并销毁
+              legacy_cookie_key_path(), legacy_mark_path()):
         try:
             os.remove(p)
             ok = True
         except OSError:
             pass
-    try:
-        if os.path.isdir(dir_path) and not os.listdir(dir_path):
-            os.rmdir(dir_path)
-    except OSError:
-        pass
+    for d in (os.path.join(dir_path, ""), ck_home_dir()):
+        try:
+            if os.path.isdir(d) and not os.listdir(d):
+                os.rmdir(d)
+        except OSError:
+            pass
     lock()
     return ok
