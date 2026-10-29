@@ -917,6 +917,7 @@ class App:
                 )
                 saved = cx_vault.save_session(cookies)
                 self.cookies = cx_vault.ReadOnlyCookies(cookies)
+                self._post(lambda: self.var_pwd.set(""))      # 密码用完即从输入框抹掉
                 tip = "，已加密保存到本机" if saved else "（本地保存失败，仅本次有效）"
                 self._post(lambda: self._set_status(
                     f"登录成功（{msg}）{tip}，正在提取课程与作业/考试…", "ok"))
