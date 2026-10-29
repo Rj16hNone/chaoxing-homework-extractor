@@ -855,12 +855,8 @@ class App:
             if not cx_vault.session_file_exists():
                 self._set_status("本机还没有保存的登录状态，请先用「账号密码登录」登录一次。", "err")
                 return
-            # 现场再探一次 CookieKey：已保存的登录状态只需要它就能用
-            cx_keyring.auto_cookie_key()
             if not cx_keyring.cookie_readable():
-                self._set_status(
-                    "未检测到 CookieKey：把 CookieKey 放回 keys 文件夹即可使用已保存的登录状态；"
-                    "也可以接入管理设备，或用恢复密钥解锁。", "err")
+                self._set_status("本机保存的登录状态暂时不可用，请重新登录一次。", "err")
                 return
         self._run(mode=m)
 
@@ -882,14 +878,9 @@ class App:
         if st["state"] == "open":
             self._post(lambda: self.on_keyring_unlocked("full"))
             return
-        # 没接入设备时，自动检测项目目录下的 CookieKey（受限子密钥）——
-        # 「已保存的登录状态」只需要它就能用
-        if cx_keyring.auto_cookie_key():
-            self._post(lambda: self.on_keyring_unlocked("cookie", announce=True))
-            return
         self._post(self._set_locked)
 
-    def on_keyring_unlocked(self, level="full", announce=False):
+    def on_keyring_unlocked(self, level="full"):
         """解锁后：载入已保存的登录状态，并把界面切到「已保存状态」模式。"""
         self.btn_login.configure(state="normal")
         if level == "full":
@@ -904,18 +895,6 @@ class App:
             if self.mode.get() != "saved":
                 self.mode.set("saved")
                 self._switch_mode()
-        if not announce:
-            return
-        if sess is not None:
-            self._set_status(
-                "已自动检测到 CookieKey：可直接使用本机已保存的登录状态。", "ok")
-        elif cx_vault.session_file_exists():
-            self._set_status(
-                "已自动检测到 CookieKey，但本机保存的登录状态解不开"
-                "（可能是别的钥匙或别的电脑保存的），请重新登录一次。", "err")
-        else:
-            self._set_status(
-                "已自动检测到 CookieKey：本机还没有保存的登录状态，登录一次就会自动存下来。", "info")
 
     def _set_locked(self, msg=None):
         """主界面不展示锁定状态；按钮保持可用，点击时再说明原因。"""
@@ -993,29 +972,12 @@ class App:
         self.btn_refresh.configure(state="disabled")
         self.btn_logout.configure(state="disabled")
 
-        if level == "cookie":
-            self._close_members_dialog()
-            self.on_keyring_unlocked("cookie")      # 受限权限：读取已保存 Cookie
-            if reason == "cookiekey_found":
-                self._set_status(
-                    "已检测到 CookieKey：可直接使用本机已保存的登录状态"
-                    "（仅 Cookie 读取权限）。", "ok")
-            else:
-                self._set_status(
-                    "管理设备已移除：已收回成员管理权限，"
-                    "当前仅能通过 CookieKey 读取本机已保存的 Cookie。", "info")
-            return
-
         # level == none：彻底关闭查看权限
         self._close_members_dialog()
         if self.mode.get() == "saved":
             self.mode.set("account")
             self._switch_mode()
-        if reason.startswith("usb"):
-            tail = "重新接入管理设备，再点右下角齿轮「重新检测」即可恢复。"
-        else:
-            tail = "把 CookieKey 放回 keys 文件夹（或重新接入管理设备）后即可恢复。"
-        self._set_status("检测到密钥已失效，已关闭查看权限。" + tail, "err")
+        self._set_status("本机保存的登录状态暂时不可用，请重新登录一次。", "err")
 
     def _logout(self):
         """用户主动清除本地登录状态（唯一会删除 Cookie 的操作）。"""
@@ -1041,14 +1003,9 @@ class App:
         self._set_status("已清除本地登录状态，相关加密文件已删除。", "info")
 
     def _run(self, mode):
-        # 登录与保存不需要任何钥匙；「已保存登录态」只要检测到 CookieKey 即可
-        if mode == "saved":
-            cx_keyring.auto_cookie_key()
-            if not cx_keyring.cookie_readable():
-                self._set_status(
-                    "未检测到 CookieKey：把 CookieKey 放回 keys 文件夹即可使用；"
-                    "也可以接入管理设备，或用恢复密钥解锁。", "err")
-                return
+        if mode == "saved" and not cx_keyring.cookie_readable():
+            self._set_status("本机保存的登录状态暂时不可用，请重新登录一次。", "err")
+            return
         self.busy = True
         self.btn_login.configure(state="disabled")
         self.btn_refresh.configure(state="disabled")
@@ -1060,8 +1017,7 @@ class App:
     def _worker(self, mode):
         try:
             if mode == "saved" and not cx_keyring.cookie_readable():
-                raise cx.ChaoxingError("未检测到 CookieKey：请把它放回 keys 文件夹，"
-                                       "或接入管理设备 / 用恢复密钥解锁")
+                raise cx.ChaoxingError("本机保存的登录状态暂时不可用，请重新登录一次。")
             if mode == "account":
                 cookies, msg = cx_login.chaoxing_login(
                     self.var_user.get().strip(),
@@ -1071,8 +1027,6 @@ class App:
                 saved = cx_vault.save_session(cookies)
                 self.cookies = cx_vault.ReadOnlyCookies(cookies)
                 tip = "，已加密保存到本机" if saved else "（本地保存失败，仅本次有效）"
-                if saved and not cx_keyring.cookie_readable():
-                    tip += "（用本机密钥加密，读取需 CookieKey / 管理设备 / 恢复密钥）"
                 self._post(lambda: self._set_status(
                     f"登录成功（{msg}）{tip}，正在提取课程与作业/考试…", "ok"))
             elif mode == "cookie":
@@ -1083,22 +1037,14 @@ class App:
                 saved = cx_vault.save_session(cookies)
                 self.cookies = cx_vault.ReadOnlyCookies(cookies)
                 if saved:
-                    if cx_keyring.cookie_readable():
-                        self._post(lambda: self._set_status("Cookie 已加密保存到本机。", "ok"))
-                    else:
-                        self._post(lambda: self._set_status(
-                            "Cookie 已用本机密钥加密保存；读取需 CookieKey、管理设备或恢复密钥。",
-                            "ok"))
+                    self._post(lambda: self._set_status("Cookie 已加密保存到本机。", "ok"))
             elif mode == "saved":
                 cookies = cx_vault.load_session()
                 if not cookies:
                     if not cx_keyring.cookie_readable():
-                        raise cx.ChaoxingError(
-                            "未检测到 CookieKey：把 CookieKey 放回 keys 文件夹即可使用"
-                            "已保存的登录状态；也可以接入管理设备或用恢复密钥解锁")
+                        raise cx.ChaoxingError("本机保存的登录状态暂时不可用，请重新登录一次。")
                     raise cx.ChaoxingError(
-                        "本机保存的登录状态解不开（可能是别的 CookieKey、别的电脑保存的），"
-                        "请用「账号密码登录」重新登录一次")
+                        "本机保存的登录状态解不开，请用「账号密码登录」重新登录一次")
                 self.cookies = cookies
             else:
                 cookies = self.cookies
@@ -1363,7 +1309,7 @@ class MembersDialog(tk.Toplevel):
         try:
             sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
             dw = min(880, max(600, int((sw - s(48)) / self.scale)))
-            # 初始只显示 CookieKey 受限面板，高度先给小的；有高级权限时 _relayout 会撑开
+            # 初始只显示最简面板，高度先给小的；识别到管理设备时 _relayout 会撑开
             dh = min(660, max(300, int((sh - s(96)) / self.scale)))
             self.geometry("%dx%d+%d+%d" % (
                 s(dw), s(dh),
@@ -1465,7 +1411,7 @@ class MembersDialog(tk.Toplevel):
         inner = tk.Frame(card, bg=CARD, padx=s(16), pady=s(14))
         inner.pack(fill="x")
 
-        self.lbl_key = tk.Label(inner, text="正在检测设备…", bg=CARD, fg=ACCENT,
+        self.lbl_key = tk.Label(inner, text="", bg=CARD, fg=ACCENT,
                                 font=("Microsoft YaHei UI", 10, "bold"), anchor="w")
         self.lbl_key.pack(fill="x")
 
@@ -1473,17 +1419,6 @@ class MembersDialog(tk.Toplevel):
         row1.pack(fill="x", pady=(s(12), 0))
         ttk.Button(row1, text="重新检测", style="Ghost.TButton", image=self._img("refresh.png"),
                    compound="left", command=self.refresh).pack(side="left")
-        self.btn_ck = ttk.Button(row1, text="创建 CookieKey…", style="Ghost.TButton",
-                                 image=self._img("cookie.png"), compound="left",
-                                 command=self._create_cookie_key)
-        self.btn_ck.pack(side="left", padx=s(8))
-
-        # CookieKey 状态行
-        self.lbl_ck = tk.Label(inner, text="", bg=CARD, fg=SUB,
-                               font=("Microsoft YaHei UI", 9), anchor="w",
-                               justify="left", wraplength=s(760))
-        self.lbl_ck.pack(fill="x", pady=(s(8), 0))
-
         # 与设备相关的操作：只在「有高级权限」或「刚接入未登记的设备」时出现
         self.row2 = tk.Frame(inner, bg=CARD)
         self.btn_register = ttk.Button(self.row2, text="登记当前设备", style="Ghost.TButton",
@@ -1537,7 +1472,7 @@ class MembersDialog(tk.Toplevel):
 
     # ------------------------------------------------------------ 检测
     def refresh(self):
-        self.lbl_key.configure(text="正在检测设备…", fg="#2f6fed")
+        self.lbl_key.configure(text="")
         self.btn_register.configure(state="disabled")
         threading.Thread(target=self._scan, daemon=True).start()
 
@@ -1554,10 +1489,10 @@ class MembersDialog(tk.Toplevel):
             self._post(lambda: self._apply(devs, st, members, level))
         except Exception as e:  # noqa: BLE001
             err = str(e)
-            self._post(lambda: self.lbl_key.configure(text="检测失败：" + err, fg="#d64545"))
+            self._post(lambda: self.lbl_key.configure(text=""))
 
     def _relayout(self, has_usb, advanced, unregistered):
-        """按当前权限摆放面板：默认只露出 CookieKey 那一块（受限视图）。
+        """按当前权限摆放面板：默认只露出最简信息，避免被旁人看到。
 
         · 没有高级权限 —— 不显示记录，也不显示设备相关的按钮；
         · 检测到未登记的设备 —— 只多给一个「登记当前设备」；
@@ -1610,35 +1545,9 @@ class MembersDialog(tk.Toplevel):
         self._members = members or []
         advanced = level == "full"          # 高级权限：设备或恢复密钥解开了主密钥
         has_usb = bool(devs)
-        ck = cx_keyring.cookie_key_state()
 
-        # ---- 状态：只区分「已解锁 / 未解锁」
-        if advanced or level == "cookie":
-            self.lbl_key.configure(text="已解锁", fg="#1f9d57")
-        else:
-            self.lbl_key.configure(text="未解锁", fg="#d64545")
-
-        # ---- CookieKey
-        if ck["exists"]:
-            self.btn_ck.configure(text="打开 CookieKey 位置")
-            line = ("CookieKey：已创建 · 仅限本机使用（可复制，放回 keys 文件夹即可）\n"
-                    "位置：%s" % ck["path"])
-        elif ck["foreign"]:
-            self.btn_ck.configure(text="CookieKey 不可用")
-            line = ("CookieKey：keys 文件夹里的文件属于另一台电脑，本机无法使用 —— "
-                    "它不能在本机解开；如需在本机使用，请点左侧按钮生成一个新的")
-        elif ck["corrupt"]:
-            self.btn_ck.configure(text="CookieKey 已损坏")
-            line = "CookieKey：文件已损坏无法读取 —— 点左侧按钮可重新生成"
-        elif ck["locked"]:
-            self.btn_ck.configure(text="CookieKey 文件缺失")
-            line = ("CookieKey：本机已创建过，但文件不在了 —— 请把备份或复制出去的 "
-                    "CookieKey 放回 keys 文件夹（每台电脑只能创建一次，无法重新生成）")
-        else:
-            self.btn_ck.configure(text="创建 CookieKey…")
-            line = ("CookieKey：未创建 —— 创建一次即可长期使用；只在这台电脑上有效"
-                    "（每台电脑只能创建一次）")
-        self.lbl_ck.configure(text=line)
+        # ---- 权限状态不显示任何文字
+        self.lbl_key.configure(text="")
 
         # ---- 面板：默认只显示上面这一块（受限视图）
         self._relayout(has_usb, advanced, st["state"] == "unregistered")
@@ -1753,87 +1662,6 @@ class MembersDialog(tk.Toplevel):
                 parent=self)
         else:
             messagebox.showerror("隐私查看权限", msg, parent=self)
-
-    def _create_cookie_key(self):
-        """创建本机唯一的 CookieKey（与本机绑定，只在创建它的电脑上可用）。"""
-        state = cx_keyring.cookie_key_state()
-        if state["exists"]:
-            self._open_ck_dir(state["path"])
-            return
-        if state["locked"]:
-            extra = ""
-            if state["foreign"]:
-                extra = "\n（注意：keys 文件夹里的这个文件属于别的电脑，不是你本机的钥匙）"
-            elif state["corrupt"]:
-                extra = "\n（注意：keys 文件夹里的 CookieKey 文件已损坏）"
-            messagebox.showinfo(
-                "CookieKey",
-                "本机已经创建过 CookieKey，不能再生成一次。\n\n"
-                "请把之前复制出去的 CookieKey 放回 keys 文件夹（程序目录下）即可继续使用。" + extra,
-                parent=self)
-            return
-        if state["foreign"] or state["corrupt"]:
-            why = ("这个 CookieKey 是在另一台电脑上创建的，与本机绑定，本机解不开。"
-                   if state["foreign"] else
-                   "这个 CookieKey 文件已经损坏，读不出密钥。")
-            if not messagebox.askyesno(
-                    "CookieKey",
-                    "%s\n\n是否把它改名备份，然后在本机创建一个新的？\n"
-                    "（原文件会保留在同一目录，不会删除）" % why,
-                    parent=self):
-                return
-            try:
-                stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-                os.replace(state["path"], "%s.bak-%s" % (state["path"], stamp))
-            except OSError as e:
-                messagebox.showerror("CookieKey", "无法移开原文件：%s" % e, parent=self)
-                return
-            state = cx_keyring.cookie_key_state()
-            if state["exists"] or state["locked"]:
-                self.refresh()
-                return
-        tip = ("CookieKey 是这台电脑的 Cookie 钥匙：\n\n"
-               "· 每台电脑只能创建一次，删除后无法重新生成；\n"
-               "· 与本机绑定：只在这台电脑上有效，复制到别的电脑解不开；\n"
-               "· 会保存在程序目录的 keys 文件夹里；在本机可以复制一份作为备份；\n"
-               "· 创建不需要设备，也不影响记录的设备保护。\n\n"
-               "现在创建？")
-        if not messagebox.askyesno("创建 CookieKey", tip, parent=self):
-            return
-        # 先把现有 Cookie 读进内存（如果当前能读），创建后用新钥匙重加密
-        pending = None
-        try:
-            pending = cx_vault.load_session()
-        except Exception:
-            pending = None
-        ok, msg = cx_keyring.create_cookie_key()
-        if not ok:
-            messagebox.showerror("CookieKey", msg, parent=self)
-            self.refresh()
-            return
-        cx_keyring.load_cookie_key(msg)
-        if pending:
-            try:
-                cx_vault.save_session(dict(pending))    # 旧密文重加密到新钥匙
-            except Exception:
-                pass
-        messagebox.showinfo(
-            "CookieKey",
-            "已创建：\n%s\n\n该文件与本机绑定，只在这台电脑上有效；"
-            "请妥善保管，并记得备份一份。" % msg,
-            parent=self)
-        if self.app:
-            self.app.on_keyring_unlocked("cookie")
-        self.refresh()
-
-    def _open_ck_dir(self, path):
-        try:
-            if os.name == "nt":
-                os.startfile(os.path.dirname(path) or ".")
-            else:
-                messagebox.showinfo("CookieKey", path, parent=self)
-        except Exception as e:  # noqa: BLE001
-            messagebox.showinfo("CookieKey", "%s\n(%s)" % (path, e), parent=self)
 
     def _unlock_with_backup(self):
         path = filedialog.askopenfilename(

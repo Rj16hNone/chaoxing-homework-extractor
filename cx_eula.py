@@ -15,7 +15,7 @@ import sys
 import json
 import datetime
 
-EULA_VERSION = 1
+EULA_VERSION = 2
 FILE_NAME = ".eula.ok"          # 程序目录里的标记
 FALLBACK_DIR = "ChaoxingHelper"  # %LOCALAPPDATA% 下的兜底目录
 
@@ -41,7 +41,7 @@ BODY = """超星学习通 · 未完成作业 / 考试提取
 · 登录态只加密保存在本机（AES-256-CTR + HMAC-SHA256 完整性校验），不上传、不同步；
 · 软件没有服务器、没有账号体系、不含任何遥测或统计上报；
 · 软件不写操作日志，不记录课程名、作业名、截止时间，也不保存原始网页内容；
-· CookieKey 每台电脑只能创建一次，且与创建它的电脑绑定。删除或丢失后无法重新生成，已有的加密登录态将无法恢复，请自行做好备份。
+· 加密密钥与这台电脑绑定：换电脑或重装系统后需重新登录一次，原登录态无法迁移。
 
 四、免责
 

@@ -155,11 +155,9 @@ def source():
 
 
 def access_level():
-    """full=设备/恢复密钥；cookie=仅有 CookieKey（受限）；none=未解锁。"""
+    """full=已解锁；none=未解锁。CookieKey 不再参与权限判定。"""
     if _mk is not None:
         return "full"
-    if _ck is not None:
-        return "cookie"
     return "none"
 
 
@@ -170,12 +168,8 @@ def _subkey(label):
 
 
 def cookie_key():
-    """Cookie 会话子密钥：完整解锁时由主密钥派生；仅有 CookieKey 时直接返回文件里的密钥。"""
-    if _ck is not None:
-        return _ck
-    if _mk is not None:
-        return _subkey(b"cookie.v1")
-    return None
+    """Cookie 会话子密钥：只能由主密钥派生。"""
+    return _subkey(b"cookie.v1") if _mk is not None else None
 
 
 def profile_key():
@@ -217,15 +211,8 @@ def vault_key(tier="cookie"):
 
 
 def write_tier():
-    """写入档位：cookie（正式子密钥）/ machine（机器绑定）。
-
-    没有完整权限时先现场探一次 keys/ 文件夹里的 CookieKey —— 只要它在，
-    就用它加密落盘，这样这份密文日后靠 CookieKey 就能解开；
-    只有连 CookieKey 都没有时才退回机器绑定密钥。
-    """
-    if cookie_key() is None:
-        auto_cookie_key()
-    return "cookie" if cookie_key() is not None else "machine"
+    """写入档位：mk（已解锁）/ machine（机器绑定兜底）。"""
+    return "mk" if _mk is not None else "machine"
 
 
 def cookie_writable():
@@ -641,11 +628,12 @@ def cookie_key_info(path=None):
 
 
 def load_cookie_key(path=None):
-    """载入 CookieKey：只授予 Cookie 读写权限，不触碰成员与主密钥。
+    """已停用：CookieKey 不再被载入内存。"""
+    return False
 
-    path 省略时在 keys/ 文件夹里自动查找。
-    若读到的是旧版（未绑机器）的钥匙，会顺手原地升级为绑定本机的格式。
-    """
+
+def _load_cookie_key_legacy(path=None):
+    """旧实现，保留仅供内部兼容。"""
     global _ck, _ck_source
     if path is None:
         path = find_cookie_key()
@@ -664,28 +652,13 @@ def load_cookie_key(path=None):
 
 
 def auto_cookie_key(path=None):
-    """没有完整权限时，现场探测一次 CookieKey。
-
-    「已保存的登录状态」只依赖 CookieKey：只要探到就可以直接使用，
-    不需要插设备、也不需要恢复密钥。只在 keys/ 文件夹里查找。
-    """
-    if access_level() != "none":
-        return access_level() == "cookie"
-    return load_cookie_key(path)
+    """已停用：CookieKey 不再作为权限来源。"""
+    return False
 
 
 def refresh_cookie_key(path=None):
-    """定期/入口处调用：CookieKey 出现就自动载入，消失就自动降级。
-
-    返回 True 表示当前可读 Cookie（含完整权限）。
-    """
-    if _mk is not None:
-        return True
-    if _ck is not None:
-        if _cookie_key_intact(path):
-            return True
-        lock()                      # 文件被移走 / 换掉：立即失效
-    return auto_cookie_key(path)
+    """定期调用：返回当前是否可读 Cookie。"""
+    return _mk is not None
 
 
 # ------------------------------------------------------------------ 恢复密钥
