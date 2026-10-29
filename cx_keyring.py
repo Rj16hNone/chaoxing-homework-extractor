@@ -189,9 +189,10 @@ _PROVISIONAL_LABEL = b"cx.subkey.cookie.machine.v1"
 def provisional_key():
     """机器绑定派生密钥：不需要设备、也不需要 CookieKey 即可得到。
 
-    唯一用途是「还没解锁时也能把登录状态加密落盘」。它是单向派生、不可反推主密钥，
-    但同一台电脑、同一个系统账户下可以被重新推导出来，强度明显低于主密钥派生，
-    因此只用于写入；读取仍要求解锁。
+    现在是 Cookie 文件**唯一的**加解密密钥来源（不再有解锁门）：同一台电脑、
+    同一个系统账户下可以重新推导出来，别的机器/别的账户推不出来。
+    它是单向派生、不可反推主密钥，强度低于主密钥派生，但足以满足
+    「文件离开本机即无法解密」的要求。
     """
     return cx_crypto.hmac_sha256(cx_guard.machine_secret(), _PROVISIONAL_LABEL)
 
@@ -211,8 +212,12 @@ def vault_key(tier="cookie"):
 
 
 def write_tier():
-    """写入档位：mk（已解锁）/ machine（机器绑定兜底）。"""
-    return "mk" if _mk is not None else "machine"
+    """写入档位：固定 machine（本机绑定派生密钥）。
+
+    不再依赖任何钥匙，所以本机随时能读回；文件本身仍是 AES+HMAC 加密，
+    拷到别的电脑/别的系统账户下解不开。
+    """
+    return "machine"
 
 
 def cookie_writable():
@@ -221,8 +226,8 @@ def cookie_writable():
 
 
 def cookie_readable():
-    """读取已保存的 Cookie 是否允许：需要解锁（管理设备 / 恢复密钥 / CookieKey）。"""
-    return access_level() != "none"
+    """读取已保存的 Cookie：不设门，直接可读（文件加密与绑机由密码学层保证）。"""
+    return True
 
 
 def lock():

@@ -75,6 +75,16 @@ COURSE_DETAIL_OLD_ENTRIES = (
     "https://mooc1.chaoxing.com/mycourse/stucoursemiddle",
 )
 
+# 「我的课程」其他入口：有的课程（机构课、协会课、旁听/归档课）不会出现在
+# backclazzdata 的默认分组里，只能从个人主页或老版邀请页的 HTML 里抠出来
+COURSE_HOME_PAGES = (
+    ("i-base", "https://i.chaoxing.com/base"),
+    ("visit-old", "https://mooc1.chaoxing.com/visit/interaction"),
+    ("visit-mooc2", "https://mooc2-ans.chaoxing.com/mooc2-ans/visit/interaction"),
+)
+# courseType：0/空=全部，1=我学的课，2=我教的课，3=归档/其他
+COURSE_TYPES = ("", "1", "2", "3")
+
 # 作业列表三代入口：new（mooc-ans，分页）/ mooc2 / mooc1（最老）都试，结果合并
 WORK_ROUTES = (
     ("new", WORK_LIST_NEW_URL, True),
@@ -404,16 +414,20 @@ class ChaoxingClient:
         return True, "Cookie 有效。"
 
     # ---------------------------------------------------------------- 课程列表
-    def _courses_from_api(self):
+    def _courses_from_api(self, course_type=""):
         """新版接口：一次拿回全部课程（含 courseId / classId / cpi）。
 
         新版学习通前端是 Vue 单页应用，课程卡片由 JS 渲染，HTML 里没有课程链接，
         所以优先走这个 JSON 接口；旧模板也兼容（同一个接口一直可用）。
+
+        course_type："" 全部 / "1" 我学的课 / "2" 我教的课 / "3" 归档。
+        不同分组返回的课程不一样，必须都跑一遍再合并。
         """
-        r = self._get(
-            COURSE_JSON_URL, params={"view": "json", "rss": "1"},
-            referer="https://i.mooc.chaoxing.com/",
-        )
+        params = {"view": "json", "rss": "1"}
+        if course_type:
+            params["courseType"] = course_type
+        r = self._get(COURSE_JSON_URL, params=params,
+                      referer="https://i.mooc.chaoxing.com/")
         try:
             data = json.loads(r.text)
         except Exception:
@@ -435,8 +449,9 @@ class ChaoxingClient:
                 cid = str(c.get("id") or "")
                 if not cid or not clazz_id:
                     continue
-                if str(ch.get("isretire") or content.get("isretire") or "0") == "1":
-                    continue          # 已退课
+                # 已退课/已归档的课照样保留：它们可能还有历史作业，
+                # 是否显示交给 task_state 判断，别在这里直接丢掉
+                retired = str(ch.get("isretire") or content.get("isretire") or "0") == "1"
                 if cpi and not self.cpi:
                     self.cpi = cpi
                 courses.append({
@@ -446,6 +461,7 @@ class ChaoxingClient:
                     "clazzid": clazz_id,
                     "cpi": cpi,
                     "teacher": c.get("teacherfactor") or "",
+                    "retired": retired,
                     "url": "",
                 })
         return courses
@@ -475,6 +491,8 @@ class ChaoxingClient:
                 a0 = card.find("a", href=True)
                 if a0:
                     name = a0.get_text(strip=True)
+            if not name and card.name == "a":
+                name = card.get_text(strip=True)
 
             a = None
             for cand in card.find_all("a", href=True):
@@ -483,6 +501,8 @@ class ChaoxingClient:
                     break
             if a is None:
                 a = card.find("a", href=True)
+            if a is None and card.name == "a":
+                a = card          # 兜底时卡片本身就是 <a>，find 找不到自己
             href = a["href"] if a else ""
 
             q = {}
@@ -521,15 +541,17 @@ class ChaoxingClient:
         return courses
 
     def get_courses(self):
-        """课程列表：JSON 接口 + 旧版 HTML 列表**都跑一遍**，结果合并去重。
+        """课程列表：把能找到的入口**全部跑一遍**，结果合并去重。
 
-        新版前端是 Vue 单页（HTML 里没有课程链接），只能走 JSON 接口；
-        老版模板的 HTML 列表也是同一批数据，两边合并可以互相补漏。
+        学习通的课程散在好几处：backclazzdata 的 JSON（还按 courseType 分组）、
+        老版 courselistdata 的 HTML、个人主页 / 老版邀请页的 HTML。机构课、协会课、
+        旁听或归档课经常只在其中某一处出现，所以这里不做「拿到就停」。
         """
         courses = []
         seen = set()
+        self.course_sources = []          # [(来源, 新增条数)]，供 --diag-courses 用
 
-        def add(lst):
+        def add(label, lst):
             n = 0
             for c in lst:
                 key = (c.get("courseId"), c.get("classId"))
@@ -538,27 +560,38 @@ class ChaoxingClient:
                 seen.add(key)
                 courses.append(c)
                 n += 1
+            if n:
+                self.course_sources.append((label, n))
             return n
 
-        # 1) 新版 JSON 接口（老版本同样可用）
-        try:
-            add(self._courses_from_api())
-        except ChaoxingError:
-            pass
+        # 1) JSON 接口：按分组逐个取（全部 / 我学的 / 我教的 / 归档）
+        for ct in COURSE_TYPES:
+            label = "api" + (":courseType=" + ct if ct else ":all")
+            try:
+                add(label, self._courses_from_api(ct))
+            except ChaoxingError:
+                continue
 
-        # 2) 旧版 HTML 课程列表（有结果也照样合并，避免 API 少给课）
-        attempts = []
+        # 2) 老版 HTML 课程列表（常能补上 API 漏掉的课）
+        html_attempts = [(COURSE_LIST_FALLBACK, None)]
         if self.fid:
-            attempts.append((COURSE_LIST_URL, {"courseType": "1", "courseFid": self.fid}))
-            attempts.append((COURSE_LIST_URL, {"courseFid": self.fid}))
-        attempts.append((COURSE_LIST_FALLBACK, None))
-        for url, params in attempts:
+            html_attempts.insert(0, (COURSE_LIST_URL, {"courseType": "1", "courseFid": self.fid}))
+        html_attempts.insert(1 if self.fid else 0, (COURSE_LIST_URL, None))
+        for url, params in html_attempts:
+            label = "html:" + url.split("//")[-1].split("/")[0]
             try:
                 r = self._get(url, params=params, referer="https://mooc2-ans.chaoxing.com/")
             except ChaoxingError:
                 continue
-            if add(self._parse_courses(r.text)):
-                break          # 这一路拿到了，备用地址就不用再试
+            add(label, self._parse_courses(r.text))
+
+        # 3) 个人主页 / 邀请页：机构课、协会课往往只在这里露面
+        for label, url in COURSE_HOME_PAGES:
+            try:
+                r = self._get(url, referer="https://i.chaoxing.com/")
+            except ChaoxingError:
+                continue
+            add(label, self._parse_courses(r.text))
         return courses
 
     # ---------------------------------------------------------------- 课程详情
@@ -1043,6 +1076,8 @@ def main():
     ap.add_argument("--cookies-file", help="存放 Cookie 的文件路径（支持 JSON）")
     ap.add_argument("--output", help="导出 CSV 路径（默认 stdout）")
     ap.add_argument("--all", action="store_true", help="包含已完成的任务")
+    ap.add_argument("--diag-courses", action="store_true",
+                    help="只列出各入口抓到的课程（排查「某门课不显示」时用）")
     args = ap.parse_args()
 
     cookies = args.cookies
@@ -1056,6 +1091,19 @@ def main():
     ok, msg = client.check_login()
     print("登录校验：", msg)
     if not ok:
+        return
+    if args.diag_courses:
+        courses = client.get_courses()
+        print("课程来源：")
+        for label, n in getattr(client, "course_sources", []):
+            print("  %-26s +%d" % (label, n))
+        print("共 %d 门：" % len(courses))
+        for c in courses:
+            print("  - %s%s  courseId=%s classId=%s%s" % (
+                c.get("name") or "(无名)",
+                "  [归档]" if c.get("retired") else "",
+                c.get("courseId"), c.get("classId"),
+                "  cpi=" + c["cpi"] if c.get("cpi") else ""))
         return
     data = client.extract_all(only_incomplete=not args.all)
     if args.output:

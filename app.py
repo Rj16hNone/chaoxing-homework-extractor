@@ -407,16 +407,11 @@ def _ask_eula(root):
 
 
 class App:
-    WATCH_MS = 10000        # 每 10 秒复核一次钥匙是否还在
-
     def __init__(self, root):
         self.root = root
         self.cookies = None      # 只读 Cookie 视图（来自加密仓库或本次登录）
         self.data = None         # 最近一次提取结果
         self.busy = False
-        self.dlg = None          # 已打开的「隐私查看权限」窗口
-        self._watch_running = False
-        self._watch_job = None
         self._q = queue.Queue()      # 子线程 -> 主线程 的 UI 更新队列
         self.f_on = {k: True for k in cx.STATE_ORDER}   # 三块各自的显示开关（默认全选）
         self._row_tasks = {}         # Treeview 行 iid -> 任务对象（筛选后行号会变）
@@ -424,7 +419,6 @@ class App:
         self._build_ui()
         self._pump()
         self.root.after(200, self._restore_session)
-        self._watch_job = self.root.after(self.WATCH_MS, self._watch_tick)
 
     # ------------------------------------------------------------ 线程 <-> UI
     def _post(self, fn):
@@ -498,14 +492,6 @@ class App:
         footer.pack(side="bottom", fill="x")
         tk.Label(footer, text="仅做读取，不会提交 / 删除 / 作答任何作业或考试",
                  bg=BG, fg=SUB, font=("Microsoft YaHei UI", 9), anchor="w").pack(side="left")
-        self.gear = tk.Button(footer, text="隐私查看权限", image=self._img("gear.png"),
-                              compound="left", bg=BG, fg="#46505c",
-                              activebackground="#e8eefb", activeforeground=ACCENT,
-                              relief="flat", bd=0, cursor="hand2",
-                              padx=s(9), pady=s(3),
-                              font=("Microsoft YaHei UI", 9), command=self._open_members)
-        self.gear.pack(side="right")
-
         # ---------------- 可滚动页面
         self.page = ScrollArea(root, BG)
         self.page.pack(fill="both", expand=True)
@@ -855,9 +841,6 @@ class App:
             if not cx_vault.session_file_exists():
                 self._set_status("本机还没有保存的登录状态，请先用「账号密码登录」登录一次。", "err")
                 return
-            if not cx_keyring.cookie_readable():
-                self._set_status("本机保存的登录状态暂时不可用，请重新登录一次。", "err")
-                return
         self._run(mode=m)
 
     def _on_refresh(self):
@@ -865,26 +848,17 @@ class App:
             return
         self._run(mode="cached")
 
-    # ------------------------------------------------------------ 启动与解锁
+    # ------------------------------------------------------------ 启动
     def _restore_session(self):
-        """启动时静默校验解锁状态（设备 / 恢复密钥）。"""
+        """启动时直接载入本机已保存的登录态，不需要任何钥匙。"""
         threading.Thread(target=self._boot_worker, daemon=True).start()
 
     def _boot_worker(self):
-        try:
-            st = cx_keyring.state()
-        except Exception:  # noqa: BLE001
-            st = {"state": "locked"}
-        if st["state"] == "open":
-            self._post(lambda: self.on_keyring_unlocked("full"))
-            return
-        self._post(self._set_locked)
+        self._post(self.on_keyring_unlocked)
 
-    def on_keyring_unlocked(self, level="full"):
-        """解锁后：载入已保存的登录状态，并把界面切到「已保存状态」模式。"""
+    def on_keyring_unlocked(self):
+        """载入已保存的登录状态，并把界面切到「已保存状态」模式。"""
         self.btn_login.configure(state="normal")
-        if level == "full":
-            self.btn_logout.configure(state="normal")
         try:
             sess = cx_vault.load_session()
         except Exception:
@@ -892,92 +866,14 @@ class App:
         if sess is not None:
             self.cookies = sess
             self.btn_refresh.configure(state="normal")
+            self.btn_logout.configure(state="normal")
             if self.mode.get() != "saved":
                 self.mode.set("saved")
                 self._switch_mode()
 
-    def _set_locked(self, msg=None):
-        """主界面不展示锁定状态；按钮保持可用，点击时再说明原因。"""
-        self.btn_refresh.configure(state="disabled")
-        if msg:
-            self._set_status(msg, "err")
-
-    def _open_members(self):
-        self._close_members_dialog()
-        self.dlg = MembersDialog(self.root, app=self)
-
-    def _close_members_dialog(self):
-        dlg = getattr(self, "dlg", None)
-        self.dlg = None
-        if dlg is None:
-            return
-        try:
-            if dlg.winfo_exists():
-                dlg.destroy()
-        except Exception:
-            pass
-
-    # ------------------------------------------------------------ 权限周期复核
-    def _watch_tick(self):
-        """每 10 秒复核一次：钥匙不在了就收回权限。"""
-        try:
-            if not self.busy and not self._watch_running:
-                self._watch_running = True
-                threading.Thread(target=self._watch_worker, daemon=True).start()
-        except Exception:
-            self._watch_running = False
-        try:
-            self._watch_job = self.root.after(self.WATCH_MS, self._watch_tick)
-        except Exception:
-            pass
-
-    def _watch_worker(self):
-        res = None
-        try:
-            res = cx_keyring.revalidate()
-        except Exception:  # noqa: BLE001
-            res = None
-        finally:
-            self._watch_running = False
-        if res and res.get("changed"):
-            self._post(lambda: self._on_key_changed(res))
-
-    def _on_key_changed(self, res):
-        """钥匙状态变化：降级 / 失效时收回对应的访问能力。"""
-        level = res.get("level") or "none"
-        reason = res.get("reason") or ""
-        if level == "full":
-            # 升回完整权限：刷新权限窗口，并把已保存的登录态静默载回内存（不打断当前输入）
-            if self.dlg is not None:
-                try:
-                    self.dlg.refresh()
-                except Exception:
-                    pass
-            if self.cookies is None:
-                try:
-                    sess = cx_vault.load_session()
-                except Exception:
-                    sess = None
-                if sess is not None:
-                    self.cookies = sess
-                    self.btn_refresh.configure(state="normal")
-                    self.btn_logout.configure(state="normal")
-                    self._set_status(
-                        "已重新识别到管理设备，权限已恢复：可直接「重新提取」，"
-                        "或切到「已保存登录态」。", "ok")
-            return
-
-        # 权限下降：先丢掉内存里的 Cookie 视图，再禁用复用入口
-        self.cookies = None
-        self.btn_refresh.configure(state="disabled")
-        self.btn_logout.configure(state="disabled")
-
-        # level == none：彻底关闭查看权限
-        self._close_members_dialog()
-        if self.mode.get() == "saved":
-            self.mode.set("account")
-            self._switch_mode()
-        self._set_status("本机保存的登录状态暂时不可用，请重新登录一次。", "err")
+    def refresh_session_view(self):
+        """重新载入本机登录态（保留给外部调用，行为等同启动时）。"""
+        return self.on_keyring_unlocked()
 
     def _logout(self):
         """用户主动清除本地登录状态（唯一会删除 Cookie 的操作）。"""
@@ -1003,9 +899,6 @@ class App:
         self._set_status("已清除本地登录状态，相关加密文件已删除。", "info")
 
     def _run(self, mode):
-        if mode == "saved" and not cx_keyring.cookie_readable():
-            self._set_status("本机保存的登录状态暂时不可用，请重新登录一次。", "err")
-            return
         self.busy = True
         self.btn_login.configure(state="disabled")
         self.btn_refresh.configure(state="disabled")
@@ -1016,8 +909,6 @@ class App:
     # ------------------------------------------------------------ 后台任务
     def _worker(self, mode):
         try:
-            if mode == "saved" and not cx_keyring.cookie_readable():
-                raise cx.ChaoxingError("本机保存的登录状态暂时不可用，请重新登录一次。")
             if mode == "account":
                 cookies, msg = cx_login.chaoxing_login(
                     self.var_user.get().strip(),
@@ -1041,8 +932,6 @@ class App:
             elif mode == "saved":
                 cookies = cx_vault.load_session()
                 if not cookies:
-                    if not cx_keyring.cookie_readable():
-                        raise cx.ChaoxingError("本机保存的登录状态暂时不可用，请重新登录一次。")
                     raise cx.ChaoxingError(
                         "本机保存的登录状态解不开，请用「账号密码登录」重新登录一次")
                 self.cookies = cookies
@@ -1290,561 +1179,6 @@ class App:
             messagebox.showerror(APP_TITLE, f"导出失败：{e}")
 
 
-# ================================================================ 设备记录窗口
-class MembersDialog(tk.Toplevel):
-    """隐私查看权限：管理设备、恢复密钥与设备记录（均由主密钥保护）。"""
-
-    def __init__(self, master, app=None):
-        super().__init__(master)
-        self.app = app
-        self.title("隐私查看权限")
-        try:
-            dpi = self.winfo_fpixels("1i")
-        except Exception:
-            dpi = 96.0
-        self.scale = max(1.0, round(dpi / 96.0, 2))
-        self._s = lambda v: int(round(v * self.scale))
-        self._imgs = {}
-        s = self._s
-        try:
-            sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
-            dw = min(880, max(600, int((sw - s(48)) / self.scale)))
-            # 初始只显示最简面板，高度先给小的；识别到管理设备时 _relayout 会撑开
-            dh = min(660, max(300, int((sh - s(96)) / self.scale)))
-            self.geometry("%dx%d+%d+%d" % (
-                s(dw), s(dh),
-                max(0, (sw - s(dw)) // 2), max(0, (sh - s(dh)) // 2 - s(20))))
-            self.minsize(s(min(700, dw)), s(250))
-        except Exception:
-            self.geometry("880x300")
-        self.configure(bg=BG)
-        self.transient(master)
-        self._devices = []
-        self._state = {"state": "unregistered", "device": None, "display": ""}
-        self._members = []
-        self._q = queue.Queue()
-        self._resize_job = None
-        self._build()
-        self._pump()
-        self.bind("<Configure>", self._on_resize)
-        self.after(120, self.refresh)
-
-    def _img(self, name):
-        try:
-            if name in self._imgs:
-                return self._imgs[name]
-            hi = name.replace(".png", "@2x.png") if self.scale >= 1.4 else name
-            p = _resource("assets", hi)
-            if not os.path.exists(p):
-                p = _resource("assets", name)
-            im = tk.PhotoImage(file=p)
-            self._imgs[name] = im
-            return im
-        except Exception:
-            return None
-
-    # ------------------------------------------------------------ 自适应
-    def _on_resize(self, event=None):
-        if event is not None and getattr(event, "widget", None) is not self:
-            return
-        try:
-            if self._resize_job:
-                self.after_cancel(self._resize_job)
-        except Exception:
-            pass
-        try:
-            self._resize_job = self.after(120, self._apply_resize)
-        except Exception:
-            pass
-
-    def _apply_resize(self):
-        self._resize_job = None
-        try:
-            w = self.winfo_width()
-            self.lbl_foot.configure(wraplength=max(self._s(280), w - self._s(64)))
-            total = self.tree.winfo_width()
-            if total > 20:
-                for k, r in (("name", 0.28), ("type", 0.16), ("fp", 0.36), ("added", 0.20)):
-                    self.tree.column(k, width=max(self._s(56), int(total * r)))
-        except Exception:
-            pass
-
-    # ------------------------------------------------------------ 线程 <-> UI
-    def _post(self, fn):
-        self._q.put(fn)
-
-    def _pump(self):
-        try:
-            while True:
-                fn = self._q.get_nowait()
-                try:
-                    fn()
-                except Exception:
-                    pass
-        except queue.Empty:
-            pass
-        try:
-            self.after(80, self._pump)
-        except Exception:
-            pass
-
-    # ------------------------------------------------------------ 界面
-    def _build(self):
-        s = self._s
-        wrap = tk.Frame(self, bg=BG, padx=s(18), pady=s(16))
-        wrap.pack(fill="both", expand=True)
-
-        # 标题
-        head = tk.Frame(wrap, bg=BG)
-        head.pack(fill="x")
-        ic = self._img("shield.png")
-        if ic:
-            tk.Label(head, image=ic, bg=BG).pack(side="left", padx=(0, s(10)))
-        ht = tk.Frame(head, bg=BG)
-        ht.pack(side="left")
-        tk.Label(ht, text="隐私查看权限", bg=BG, fg=INK,
-                 font=("Microsoft YaHei UI", 14, "bold")).pack(anchor="w")
-
-        # 状态卡
-        card = tk.Frame(wrap, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
-        card.pack(fill="x", pady=(s(14), 0))
-        inner = tk.Frame(card, bg=CARD, padx=s(16), pady=s(14))
-        inner.pack(fill="x")
-
-        self.lbl_key = tk.Label(inner, text="", bg=CARD, fg=ACCENT,
-                                font=("Microsoft YaHei UI", 10, "bold"), anchor="w")
-        self.lbl_key.pack(fill="x")
-
-        row1 = tk.Frame(inner, bg=CARD)
-        row1.pack(fill="x", pady=(s(12), 0))
-        ttk.Button(row1, text="重新检测", style="Ghost.TButton", image=self._img("refresh.png"),
-                   compound="left", command=self.refresh).pack(side="left")
-        # 与设备相关的操作：只在「有高级权限」或「刚接入未登记的设备」时出现
-        self.row2 = tk.Frame(inner, bg=CARD)
-        self.btn_register = ttk.Button(self.row2, text="登记当前设备", style="Ghost.TButton",
-                                       image=self._img("key.png"), compound="left",
-                                       command=self._do_register, state="disabled")
-        self.btn_unlock_bak = ttk.Button(self.row2, text="用恢复密钥解锁…", style="Ghost.TButton",
-                                         image=self._img("unlock.png"), compound="left",
-                                         command=self._unlock_with_backup, state="disabled")
-        self.btn_backup = ttk.Button(self.row2, text="生成恢复密钥…", style="Ghost.TButton",
-                                     image=self._img("shield.png"), compound="left",
-                                     command=self._create_backup, state="disabled")
-
-        # 记录卡（没有高级权限时整块隐藏）
-        listcard = tk.Frame(wrap, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
-        self.listcard = listcard
-        lhead = tk.Frame(listcard, bg=CARD, padx=s(16), pady=s(10))
-        lhead.pack(fill="x")
-        tk.Label(lhead, text="设备记录", bg=CARD, fg=INK,
-                 font=("Microsoft YaHei UI", 10, "bold")).pack(side="left")
-        self.btn_remove = ttk.Button(lhead, text="删除选中", style="Ghost.TButton",
-                                     image=self._img("trash.png"), compound="left",
-                                     command=self._remove, state="disabled")
-        self.btn_remove.pack(side="right")
-        self.btn_add = ttk.Button(lhead, text="添加记录", style="Accent.TButton",
-                                  command=self._add, state="disabled")
-        self.btn_add.pack(side="right", padx=s(8))
-
-        tbl = tk.Frame(listcard, bg=CARD, padx=s(14))
-        tbl.pack(fill="both", expand=True, pady=(0, s(10)))
-        cols = ("name", "type", "fp", "added")
-        self.tree = ttk.Treeview(tbl, columns=cols, show="headings", height=8)
-        for key, text, width, anchor in (
-            ("name", "名称", 200, "w"),
-            ("type", "类型", 100, "center"),
-            ("fp", "标识", 230, "w"),
-            ("added", "添加时间", 150, "w"),
-        ):
-            self.tree.heading(key, text=text)
-            self.tree.column(key, width=s(width), anchor=anchor)
-        vsb = Rail(tbl, command=self.tree.yview, bg=CARD)
-        self.tree.configure(yscrollcommand=vsb.set)
-        self.tree.pack(side="left", fill="both", expand=True)
-        vsb.pack(side="right", fill="y", padx=(s(4), 0))
-        self.tree.tag_configure("odd", background="#fafcff")
-        self.tree.tag_configure("even", background="#ffffff")
-
-        self.lbl_foot = tk.Label(wrap, text="", bg=BG, fg=SUB,
-                                 font=("Microsoft YaHei UI", 9), anchor="w",
-                                 justify="left", wraplength=s(800))
-        self.lbl_foot.pack(fill="x", pady=(s(10), 0))
-
-    # ------------------------------------------------------------ 检测
-    def refresh(self):
-        self.lbl_key.configure(text="")
-        self.btn_register.configure(state="disabled")
-        threading.Thread(target=self._scan, daemon=True).start()
-
-    def _scan(self):
-        try:
-            try:
-                cx_keyring.auto_cookie_key()      # 打开窗口时先探一次 keys/ 里的钥匙
-            except Exception:
-                pass
-            devs = cx_env.scan_devices()
-            st = cx_peer.state(devices=devs)
-            level = cx_keyring.access_level()
-            members = cx_peer.load_all() if st["state"] == "open" else None
-            self._post(lambda: self._apply(devs, st, members, level))
-        except Exception as e:  # noqa: BLE001
-            err = str(e)
-            self._post(lambda: self.lbl_key.configure(text=""))
-
-    def _relayout(self, has_usb, advanced, unregistered):
-        """按当前权限摆放面板：默认只露出最简信息，避免被旁人看到。
-
-        · 没有高级权限 —— 不显示记录，也不显示设备相关的按钮；
-        · 检测到未登记的设备 —— 只多给一个「登记当前设备」；
-        · 拿到高级权限 —— 才展开设备操作与设备记录。
-        """
-        s = self._s
-        key = (bool(has_usb), bool(advanced), bool(unregistered))
-        if getattr(self, "_layout_key", None) == key:
-            return
-        self._layout_key = key
-
-        show_row = has_usb and (advanced or unregistered)
-        show_list = has_usb and advanced
-
-        for b in (self.btn_register, self.btn_unlock_bak, self.btn_backup):
-            b.pack_forget()
-        if has_usb and unregistered:
-            self.btn_register.pack(side="left", padx=(0, s(8)))
-        if has_usb and not advanced:
-            self.btn_unlock_bak.pack(side="left", padx=(0, s(8)))
-        if has_usb and advanced:
-            self.btn_backup.pack(side="left", padx=(0, s(8)))
-
-        if show_row:
-            self.row2.pack(fill="x", pady=(s(10), 0))
-        else:
-            self.row2.pack_forget()
-        if show_list:
-            # before=foot：记录卡要排在底部说明的上方，否则重新 pack 会跑到说明后面
-            self.listcard.pack(fill="both", expand=True, pady=(s(12), 0),
-                               before=self.lbl_foot)
-        else:
-            self.listcard.pack_forget()
-
-        try:
-            self.update_idletasks()
-            w = self.winfo_width()
-            if w <= 1:
-                w = s(880)
-            h = max(self.winfo_reqheight(), s(430) if show_list else s(220))
-            h = min(h, self.winfo_screenheight() - s(80))
-            self.minsize(min(w, s(700)), s(220))
-            self.geometry("%dx%d" % (w, h))   # 高度随内容收缩/展开
-        except Exception:
-            pass
-
-    def _apply(self, devs, st, members, level="full"):
-        self._devices = devs
-        self._state = st
-        self._members = members or []
-        advanced = level == "full"          # 高级权限：设备或恢复密钥解开了主密钥
-        has_usb = bool(devs)
-
-        # ---- 权限状态不显示任何文字
-        self.lbl_key.configure(text="")
-
-        # ---- 面板：默认只显示上面这一块（受限视图）
-        self._relayout(has_usb, advanced, st["state"] == "unregistered")
-        self.btn_register.configure(
-            state="normal" if (has_usb and st["state"] == "unregistered") else "disabled")
-        self.btn_backup.configure(state="normal" if (has_usb and advanced) else "disabled")
-        self.btn_unlock_bak.configure(state="normal" if (has_usb and not advanced) else "disabled")
-
-        for iid in self.tree.get_children():
-            self.tree.delete(iid)
-        if advanced and members is not None:
-            for i, m in enumerate(members):
-                self.tree.insert("", "end", values=(
-                    m.get("name", ""), m.get("type", ""),
-                    cx_env.mask_id(m.get("fp", "")), m.get("added_at", "")),
-                    tags=("odd" if i % 2 else "even",))
-            self.btn_add.configure(state="normal")
-            self.btn_remove.configure(state="normal")
-            self.lbl_foot.configure(text="当前共 %d 条记录。标识仅显示前后若干位，完整值加密保存。" % len(members))
-        else:
-            self.btn_add.configure(state="disabled")
-            self.btn_remove.configure(state="disabled")
-            msg = "解锁后可查看记录" if not advanced else "记录无法解密（文件可能被损坏）"
-            self.tree.insert("", "end", values=("🔒 " + msg, "", "", ""))
-
-        # 底部说明只在真正展开高级面板时出现；受限视图保持干净
-        if not (has_usb and advanced):
-            self.lbl_foot.configure(text="")
-        elif members is not None:
-            self.lbl_foot.configure(text="当前共 %d 条记录。标识仅显示前后若干位，完整值加密保存。"
-                                        % len(members))
-        else:
-            self.lbl_foot.configure(text="记录无法解密（文件可能被损坏）。")
-
-    # ------------------------------------------------------------ 操作
-    def _choose_device(self):
-        if len(self._devices) == 1:
-            return self._devices[0]
-        win = tk.Toplevel(self)
-        win.title("选择设备")
-        win.geometry("%dx%d" % (self._s(480), self._s(280)))
-        win.configure(bg="#ffffff")
-        win.transient(self)
-        tk.Label(win, text="检测到多枚设备，请选择要登记为管理密钥的那一枚：",
-                 bg="#ffffff", anchor="w", justify="left", wraplength=430).pack(
-            fill="x", padx=14, pady=(12, 8))
-        var = tk.IntVar(value=0)
-        for i, d in enumerate(self._devices):
-            txt = "设备 #%d  ·  标识 %s" % (i + 1, cx_env.mask_id(d["fp"]))
-            tk.Radiobutton(win, text=txt, variable=var, value=i, bg="#ffffff",
-                           anchor="w", justify="left").pack(fill="x", padx=18)
-        picked = {"dev": None}
-
-        def ok():
-            picked["dev"] = self._devices[var.get()]
-            win.destroy()
-
-        ttk.Button(win, text="确定", command=ok).pack(pady=12)
-        win.grab_set()
-        self.wait_window(win)
-        return picked["dev"]
-
-    def _do_register(self):
-        if not self._devices:
-            messagebox.showinfo("隐私查看权限", "没有检测到设备，请接入后点「重新检测」。", parent=self)
-            return
-        dev = self._choose_device()
-        if not dev:
-            return
-        tip = ("将把当前设备登记为「管理密钥」：\n\n标识：%s\n\n"
-               "登记后，Cookie 与设备记录都由它保护：\n"
-               "  · 接入这台设备才能登录、提取与查看记录；\n"
-               "  · 设备丢失时，可用恢复密钥解锁；两者都丢失则数据无法恢复。\n\n确定继续？") % (
-            cx_env.mask_id(dev["fp"]))
-        if not messagebox.askyesno("确认登记", tip, parent=self):
-            return
-        ok, msg = cx_peer.setup(dev)
-        if ok:
-            messagebox.showinfo(
-                "隐私查看权限",
-                "登记成功。\n\n建议立刻点「生成恢复密钥…」，把备份文件存到网盘或手机里，"
-                "以防设备丢失。",
-                parent=self)
-            if self.app:
-                self.app.on_keyring_unlocked()
-        else:
-            messagebox.showerror("隐私查看权限", "登记失败：" + msg, parent=self)
-        self.refresh()
-
-    def _create_backup(self):
-        if not cx_keyring.ready():
-            return
-        pwd = PassDialog(self, "生成恢复密钥", confirm=True, allow_nopass=True)
-        if pwd.value is None:
-            return
-        path = filedialog.asksaveasfilename(
-            parent=self, title="保存恢复密钥",
-            defaultextension=".cxkey", initialfile="隐私权限备份.cxkey",
-            filetypes=[("恢复密钥文件", "*.cxkey"), ("所有文件", "*.*")],
-        )
-        if not path:
-            return
-        ok, msg = cx_keyring.create_backup(path, pwd.value)
-        if ok:
-            extra = ("该文件未设口令，本身即为钥匙：复制到任何位置（含网盘、设备、另一台电脑）"
-                     "都能直接使用。\n请务必妥善保管，不要随意外发。" if not pwd.value else
-                     "该文件可复制到任意位置使用，解封时需要你设置的口令。\n请牢记口令，"
-                     "丢失后备份文件将无法解封。")
-            messagebox.showinfo(
-                "隐私查看权限",
-                "恢复密钥已保存：\n%s\n\n%s\n建议不要与数据文件放在同一目录。" % (path, extra),
-                parent=self)
-        else:
-            messagebox.showerror("隐私查看权限", msg, parent=self)
-
-    def _unlock_with_backup(self):
-        path = filedialog.askopenfilename(
-            parent=self, title="选择恢复密钥文件",
-            filetypes=[("恢复密钥文件", "*.cxkey"), ("所有文件", "*.*")],
-        )
-        if not path:
-            return
-        pwd = PassDialog(self, "解封恢复密钥", confirm=False,
-                         hint="输入生成备份时设置的口令；未设口令的备份直接点「确定」")
-        if pwd.value is None:
-            return
-        ok, msg = cx_keyring.unlock_with_backup(path, pwd.value)
-        if ok:
-            messagebox.showinfo("隐私查看权限", "解锁成功。", parent=self)
-            if self.app:
-                self.app.on_keyring_unlocked()
-            self.refresh()
-        else:
-            messagebox.showerror("隐私查看权限", msg, parent=self)
-
-    def _add(self):
-        dlg = AddMemberDialog(self)
-        if not dlg.result:
-            return
-        ok, msg = cx_peer.add(
-            dlg.result["name"], dlg.result["type"], dlg.result["fp"])
-        if not ok:
-            messagebox.showwarning("隐私查看权限", msg, parent=self)
-        self.refresh()
-
-    def _remove(self):
-        sel = self.tree.selection()
-        if not sel:
-            messagebox.showinfo("隐私查看权限", "请先选中一行。", parent=self)
-            return
-        idx = self.tree.index(sel[0])
-        name = self.tree.item(sel[0], "values")[0]
-        if not messagebox.askyesno("删除成员", "确定删除「%s」吗？" % name, parent=self):
-            return
-        ok, msg = cx_peer.remove(idx)
-        if not ok:
-            messagebox.showwarning("隐私查看权限", msg, parent=self)
-        self.refresh()
-
-
-class PassDialog(tk.Toplevel):
-    """口令输入框（生成 / 解封恢复密钥）。"""
-
-    def __init__(self, master, title, confirm=False, hint="", allow_nopass=False):
-        super().__init__(master)
-        self.title(title)
-        self.geometry("430x300" if allow_nopass else ("430x250" if confirm else "430x210"))
-        self.configure(bg="#ffffff")
-        self.transient(master)
-        self.value = None
-        self._confirm = confirm
-        self._allow_nopass = allow_nopass
-        self.var_nopass = tk.BooleanVar(value=False)
-        self._build(hint)
-        self.grab_set()
-        master.wait_window(self)
-
-    def _build(self, hint):
-        pad = {"padx": 18}
-        if hint:
-            tk.Label(self, text=hint, bg="#ffffff", fg="#6b7785",
-                     font=("Microsoft YaHei UI", 9), anchor="w").pack(fill="x", pady=(14, 0), **pad)
-        tk.Label(self, text="口令", bg="#ffffff", anchor="w").pack(fill="x", pady=(14, 2), **pad)
-        self.var1 = tk.StringVar()
-        self.e1 = tk.Entry(self, textvariable=self.var1, show="●")
-        self.e1.pack(fill="x", **pad)
-        if self._confirm:
-            tk.Label(self, text="再输一次", bg="#ffffff", anchor="w").pack(fill="x", pady=(10, 2), **pad)
-            self.var2 = tk.StringVar()
-            self.e2 = tk.Entry(self, textvariable=self.var2, show="●")
-            self.e2.pack(fill="x", **pad)
-        if self._allow_nopass:
-            tk.Checkbutton(self, text="不设口令（文件本身即钥匙，复制到任何地方都能用）",
-                           variable=self.var_nopass, bg="#ffffff", anchor="w",
-                           command=self._toggle).pack(fill="x", pady=(8, 0), **pad)
-        self.lbl_note = tk.Label(self, text="口令用于包裹主密钥，忘记后备份文件将无法解封",
-                                 bg="#ffffff", fg="#6b7785",
-                                 font=("Microsoft YaHei UI", 9), anchor="w")
-        self.lbl_note.pack(fill="x", pady=(8, 0), **pad)
-        row = tk.Frame(self, bg="#ffffff")
-        row.pack(fill="x", pady=14, **pad)
-        ttk.Button(row, text="取消", command=self.destroy).pack(side="right")
-        ttk.Button(row, text="确定", command=self._ok).pack(side="right", padx=8)
-        self.e1.focus_set()
-        self.e1.bind("<Return>", lambda e: self._ok())
-
-    def _toggle(self):
-        on = self.var_nopass.get()
-        state = "disabled" if on else "normal"
-        try:
-            self.e1.configure(state=state)
-            if self._confirm:
-                self.e2.configure(state=state)
-            self.lbl_note.configure(
-                text="未设口令：拿到该文件即可解锁，请务必妥善保管" if on
-                else "口令用于包裹主密钥，忘记后备份文件将无法解封")
-        except Exception:
-            pass
-
-    def _ok(self):
-        if self._allow_nopass and self.var_nopass.get():
-            self.value = ""
-            self.destroy()
-            return
-        v = self.var1.get()
-        if not v:
-            if self._confirm:
-                messagebox.showwarning("口令", "口令不能为空；如不需要口令请勾选下方选项。", parent=self)
-                return
-            self.value = ""      # 解封时允许留空（对应未设口令的备份）
-            self.destroy()
-            return
-        if len(v) < 6:
-            messagebox.showwarning("口令", "口令太短，请至少 6 位。", parent=self)
-            return
-        if self._confirm and v != self.var2.get():
-            messagebox.showwarning("口令", "两次输入不一致。", parent=self)
-            return
-        self.value = v
-        self.destroy()
-
-
-class AddMemberDialog(tk.Toplevel):
-    """添加一个设备记录（名称 + 类型 + 标识）。"""
-
-    def __init__(self, master):
-        super().__init__(master)
-        self.title("添加设备记录")
-        self.geometry("540x330")
-        self.configure(bg="#ffffff")
-        self.transient(master)
-        self.result = None
-        self._build()
-        self.grab_set()
-        master.wait_window(self)
-
-    def _build(self):
-        pad = {"padx": 18}
-        tk.Label(self, text="名称", bg="#ffffff").pack(anchor="w", pady=(16, 2), **pad)
-        self.var_name = tk.StringVar()
-        tk.Entry(self, textvariable=self.var_name).pack(fill="x", **pad)
-
-        tk.Label(self, text="类型", bg="#ffffff").pack(anchor="w", pady=(10, 2), **pad)
-        self.var_type = tk.StringVar(value="手机")
-        ttk.Combobox(self, textvariable=self.var_type, values=["电脑", "手机", "平板", "其他"],
-                     state="readonly").pack(fill="x", **pad)
-
-        tk.Label(self, text="标识（手机可填「设置 → 关于手机」里的序列号 / 设备 ID）",
-                 bg="#ffffff", fg="#6b7785", font=("Microsoft YaHei UI", 9)).pack(
-            anchor="w", pady=(10, 2), **pad)
-        self.var_fp = tk.StringVar()
-        tk.Entry(self, textvariable=self.var_fp).pack(fill="x", **pad)
-        ttk.Button(self, text="使用本机标识", command=self._use_pc).pack(anchor="w", pady=(6, 0), **pad)
-
-        row = tk.Frame(self, bg="#ffffff")
-        row.pack(fill="x", pady=16, **pad)
-        ttk.Button(row, text="取消", command=self.destroy).pack(side="right")
-        ttk.Button(row, text="确定添加", command=self._ok).pack(side="right", padx=8)
-
-    def _use_pc(self):
-        self.var_fp.set(cx_env.machine_id())
-        if not self.var_name.get().strip():
-            self.var_name.set("本机")
-
-    def _ok(self):
-        name = self.var_name.get().strip()
-        fp = self.var_fp.get().strip()
-        if not name:
-            messagebox.showwarning("添加记录", "请填写名称。", parent=self)
-            return
-        if not fp:
-            messagebox.showwarning("添加记录", "请填写标识，或点「使用本机标识」。", parent=self)
-            return
-        self.result = {"name": name, "type": self.var_type.get() or "其他", "fp": fp}
-        self.destroy()
-
-
 def _selftest(argv):
     """打包后的自检：用给定 Cookie 文件跑一次完整提取，结果写入日志。
 
@@ -1900,7 +1234,7 @@ def _selftest(argv):
             cx_keyring.lock()
             created = cx_vault.save_session({"_uid": "u2"}, base_dir=tmp3)
             read_blocked = cx_vault.load_session(base_dir=tmp3) is None
-            lines.append(f"noauth_create: save={created} read_blocked={read_blocked}")
+            lines.append(f"noauth_create: save={created} read_ok={not read_blocked}")
         finally:
             cx_keyring.cookie_key_path = orig_ckp
             cx_keyring.lock()

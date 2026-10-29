@@ -241,20 +241,10 @@ def save_session(cookies, extra=None, base_dir=None):
 
 
 def load_session(base_dir=None):
-    """读取并解密登录状态，返回 ReadOnlyCookies；无文件/被篡改/未解锁均返回 None。
+    """读取并解密登录状态，返回 ReadOnlyCookies；无文件/被篡改均返回 None。
 
-    读取属于「使用」方向，必须已解锁（管理 U 盘 / 备份钥匙 / CookieKey）。
-    若文件是未解锁时用机器绑定密钥创建的，解锁读到后会自动重加密为正式密钥。
+    读取不设门：密钥由本机派生，本机随时可读；换了电脑/系统账户就解不开。
     """
-    # 入口处自检一次 CookieKey：keys 文件夹里只要有它就直接可用，不依赖调用方顺序。
-    # 已经载入的密钥（可能来自别的路径）不去动它，避免把调用方的选择覆盖掉。
-    if cx_keyring.access_level() == "none":
-        try:
-            cx_keyring.auto_cookie_key()
-        except Exception:
-            pass
-    if not cx_keyring.cookie_readable():
-        return None
     _, file_path = _paths(base_dir)
     try:
         with open(file_path, "rb") as f:
