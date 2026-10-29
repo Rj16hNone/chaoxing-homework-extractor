@@ -23,7 +23,8 @@ FILES = [
     "README.md",
     "LICENSE",
     "docs/preview.png",
-    "build_exe.bat",
+    "build_installer.bat",
+    "installer.py",
     "make_zip.py",
     "requirements.txt",
     "app.py",
@@ -31,10 +32,8 @@ FILES = [
     "cx_crypto.py",
     "cx_eula.py",
     "cx_guard.py",
-    "cx_env.py",
     "cx_keyring.py",
     "cx_login.py",
-    "cx_peer.py",
     "cx_vault.py",
 ]
 ASSET_DIR = "assets"

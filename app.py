@@ -26,8 +26,6 @@ from tkinter import ttk, filedialog, messagebox
 import chaoxing_extractor as cx
 import cx_login
 import cx_vault
-import cx_env
-import cx_peer
 import cx_keyring
 import cx_guard
 import cx_eula
@@ -1196,14 +1194,11 @@ def _selftest(argv):
         import bs4
         lines.append(f"bs4={bs4.__version__}")
 
-        # 加密仓库自检（在临时目录里做，不碰用户真实会话）
+        # 加密仓库自检（临时目录，不碰真实会话；不需要任何钥匙）
         import tempfile
         import shutil
         tmp = tempfile.mkdtemp(prefix="cxvault_")
         try:
-            # 会话加密需要主密钥：这里临时注入一把测试密钥
-            import os as _os
-            cx_keyring.set_master(_os.urandom(32), "selftest")
             fake = {"_uid": "u1", "fid": "123", "_d": "SECRET_XYZ"}
             saved = cx_vault.save_session(fake, base_dir=tmp)
             blob = open(os.path.join(tmp, "session.dat"), "rb").read()
@@ -1226,90 +1221,13 @@ def _selftest(argv):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-        # 无需任何钥匙即可「创建」加密 cookie 文件（读取仍需解锁）
-        tmp3 = tempfile.mkdtemp(prefix="cxnoauth_")
-        orig_ckp = cx_keyring.cookie_key_path
-        try:
-            # 假装 keys 文件夹里没有 CookieKey，否则会自动识别并放行（那是另一条自检）
-            cx_keyring.cookie_key_path = lambda base_dir=None: os.path.join(tmp3, "NoCookieKey")
-            cx_keyring.lock()
-            created = cx_vault.save_session({"_uid": "u2"}, base_dir=tmp3)
-            read_blocked = cx_vault.load_session(base_dir=tmp3) is None
-            lines.append(f"noauth_create: save={created} read_ok={not read_blocked}")
-        finally:
-            cx_keyring.cookie_key_path = orig_ckp
-            cx_keyring.lock()
-            shutil.rmtree(tmp3, ignore_errors=True)
-
-        # 10 秒周期复核自检（拔出设备 -> 收回权限）
-        tmp4 = tempfile.mkdtemp(prefix="cxwatch_")
-        try:
-            import hashlib as _hl
-            hw = "USB|WTEST|SN1"
-            dev = {"model": "WTEST", "serial": "SN1", "letters": "",
-                   "hw_id": hw, "fp": _hl.sha256(hw.encode()).hexdigest()}
-            ckp = os.path.join(tmp4, "CK")
-            cx_keyring.lock()
-            cx_keyring.register_device(dev, base_dir=tmp4)
-            lv_present = cx_keyring.revalidate(devices=[dev], base_dir=tmp4, ck_path=ckp)["level"]
-            lv_1 = cx_keyring.revalidate(devices=[], base_dir=tmp4, ck_path=ckp)["level"]
-            lv_2 = cx_keyring.revalidate(devices=[], base_dir=tmp4, ck_path=ckp)["level"]
-            lines.append(f"watch({cx_keyring.WATCH_INTERVAL}s): present={lv_present} "
-                         f"strike1={lv_1} strike2={lv_2}")
-        finally:
-            shutil.rmtree(tmp4, ignore_errors=True)
-            cx_keyring.lock()
-
-        # CookieKey：一次创建、绑本机、自动检测
-        tmp5 = tempfile.mkdtemp(prefix="cxckonly_")
-        orig_ckp5 = cx_keyring.cookie_key_path
-        orig_mark5 = cx_keyring.cookie_key_mark_path
-        orig_ms5 = cx_guard.machine_secret
-        try:
-            ckp5 = os.path.join(tmp5, "CookieKey")
-            # 全部隔离到临时目录，避免碰到真实的 CookieKey 与标记
-            cx_keyring.cookie_key_path = lambda base_dir=None: os.path.join(tmp5, "__none__")
-            cx_keyring.cookie_key_mark_path = lambda: os.path.join(tmp5, ".lock")
-            cx_keyring.lock()
-            made = cx_keyring.create_cookie_key(ckp5)[0]          # 不需要任何权限
-            again = cx_keyring.create_cookie_key(ckp5)[0]         # 每台电脑只能创建一次
-            cx_keyring.load_cookie_key(ckp5)
-            saved5 = cx_vault.save_session({"_uid": "ck1"}, base_dir=tmp5)
-            cx_keyring.lock()
-            blocked = cx_vault.load_session(base_dir=tmp5) is None
-            # 把 CookieKey 放回 keys 文件夹：自动识别即可读取
-            cx_keyring.cookie_key_path = lambda base_dir=None: ckp5
-            cx_keyring.lock()
-            ro = cx_vault.load_session(base_dir=tmp5)
-            auto = bool(ro)
-            # 换台电脑（伪造本机标识）应当解不开
-            cx_guard.machine_secret = lambda: b"selftest-other-pc\x1fguid\x1f123456"
-            cx_keyring.lock()
-            foreign_read = cx_vault.load_session(base_dir=tmp5)
-            foreign_load = cx_keyring.load_cookie_key(ckp5)
-            foreign_flag = cx_keyring.cookie_key_state()["foreign"]
-            cx_guard.machine_secret = orig_ms5
-            cx_keyring.lock()
-            home_again = bool(cx_vault.load_session(base_dir=tmp5))
-            lines.append(f"cookiekey: create={made} again={again} save={saved5} "
-                         f"blocked_without={blocked} auto={auto} load={bool(ro)} "
-                         f"uid={ro['_uid'] if ro else None} "
-                         f"foreign_load={foreign_load} foreign_read={bool(foreign_read)} "
-                         f"foreign_flag={foreign_flag} home_again={home_again}")
-        finally:
-            cx_guard.machine_secret = orig_ms5
-            cx_keyring.cookie_key_path = orig_ckp5
-            cx_keyring.cookie_key_mark_path = orig_mark5
-            shutil.rmtree(tmp5, ignore_errors=True)
-            cx_keyring.lock()
-
         # 首次运行声明：标记写一次后不再弹
-        tmp6 = tempfile.mkdtemp(prefix="cxeula_")
+        tmp_eula = tempfile.mkdtemp(prefix="cxeula_")
         orig_pp = cx_eula._primary_path
         orig_fb = cx_eula._fallback_path
         try:
-            cx_eula._primary_path = lambda: os.path.join(tmp6, ".eula.ok")
-            cx_eula._fallback_path = lambda: os.path.join(tmp6, "fb", ".eula.ok")
+            cx_eula._primary_path = lambda: os.path.join(tmp_eula, ".eula.ok")
+            cx_eula._fallback_path = lambda: os.path.join(tmp_eula, "fb", ".eula.ok")
             first_open = cx_eula.accepted()
             wrote = cx_eula.accept()
             second_open = cx_eula.accepted()
@@ -1318,58 +1236,7 @@ def _selftest(argv):
         finally:
             cx_eula._primary_path = orig_pp
             cx_eula._fallback_path = orig_fb
-            shutil.rmtree(tmp6, ignore_errors=True)
-
-        # CookieKey 统一收进 keys/：旧布局（根目录）会被自动搬迁
-        tmp7 = tempfile.mkdtemp(prefix="cxlayout_")
-        orig_home7 = cx_keyring.ck_home_dir
-        orig_leg7 = cx_keyring.legacy_cookie_key_path
-        orig_legm7 = cx_keyring.legacy_mark_path
-        try:
-            cx_keyring.ck_home_dir = lambda base_dir=None: os.path.join(tmp7, "keys")
-            cx_keyring.legacy_cookie_key_path = lambda: os.path.join(tmp7, "CookieKey")
-            cx_keyring.legacy_mark_path = lambda: os.path.join(tmp7, ".cookiekey.lock")
-            with open(os.path.join(tmp7, "CookieKey"), "wb") as f:
-                f.write(b"CXCK1\x00legacy")
-            with open(os.path.join(tmp7, ".cookiekey.lock"), "w", encoding="utf-8") as f:
-                f.write("{}")
-            moved = cx_keyring.migrate_layout()
-            in_keys = os.path.exists(os.path.join(tmp7, "keys", "CookieKey"))
-            legacy_gone = not os.path.exists(os.path.join(tmp7, "CookieKey"))
-            lines.append(f"layout: moved={moved} in_keys={in_keys} "
-                         f"legacy_gone={legacy_gone}")
-        finally:
-            cx_keyring.ck_home_dir = orig_home7
-            cx_keyring.legacy_cookie_key_path = orig_leg7
-            cx_keyring.legacy_mark_path = orig_legm7
-            shutil.rmtree(tmp7, ignore_errors=True)
-
-        # 设备门控自检（临时目录 + 假设备，不碰真实钥匙）
-        tmp2 = tempfile.mkdtemp(prefix="cxusb_")
-        try:
-            import hashlib
-            hw_id = "USB|TESTUSB|SN123"
-            fake_dev = {
-                "model": "TESTUSB", "serial": "SN123", "letters": "Z:",
-                "hw_id": hw_id, "fp": hashlib.sha256(hw_id.encode()).hexdigest(),
-            }
-            reg = cx_peer.setup(fake_dev, base_dir=tmp2)[0]
-            open_state = cx_peer.state(base_dir=tmp2, devices=[fake_dev])["state"]
-            bak_ok = cx_keyring.create_backup(os.path.join(tmp2, "b.cxkey"), "selftest123")[0]
-            cx_keyring.lock()
-            locked_state = cx_peer.state(base_dir=tmp2, devices=[])["state"]
-            locked_none = cx_peer.load_all(base_dir=tmp2) is None
-            unlock_ok = cx_keyring.unlock_with_backup(
-                os.path.join(tmp2, "b.cxkey"), "selftest123")[0]
-            members_after = cx_peer.load_all(base_dir=tmp2)
-            lines.append(
-                f"members: register={reg} open={open_state} backup={bak_ok} "
-                f"locked={locked_state} read_locked={locked_none} "
-                f"unlock_backup={unlock_ok} count={len(members_after or [])}"
-            )
-        finally:
-            shutil.rmtree(tmp2, ignore_errors=True)
-            cx_keyring.lock()
+            shutil.rmtree(tmp_eula, ignore_errors=True)
 
         if not cookie_path or not os.path.exists(cookie_path):
             lines.append(f"cookie 文件不存在: {cookie_path}")
@@ -1407,17 +1274,85 @@ def _enter_app_dir():
         pass
 
 
+def _uninstall():
+    """卸载：删快捷方式、卸载注册表项和整个安装目录（自己最后自删）。"""
+    import subprocess
+    import winreg
+
+    exe = os.path.abspath(sys.executable if getattr(sys, "frozen", False) else __file__)
+    d = os.path.dirname(exe)
+    short = os.path.splitext(os.path.basename(exe))[0]     # 例如「超星作业提取」
+    yes = "--yes" in sys.argv          # 供自动化/静默卸载使用
+    root = tk.Tk()
+    root.withdraw()
+    if not yes and not messagebox.askyesno(
+            APP_TITLE,
+            "确定要卸载「%s」吗？\n\n将删除：\n· 程序文件（%s）\n"
+            "· 开始菜单 / 桌面快捷方式\n· 控制面板里的卸载项\n\n"
+            "（本机保存的登录状态也在这个目录里，会一并删除）" % (short, d)):
+        root.destroy()
+        return
+
+    started = os.path.join(os.environ.get("APPDATA", ""),
+                           r"Microsoft\Windows\Start Menu\Programs")
+    desktop = os.path.join(os.environ.get("USERPROFILE", ""), "Desktop")
+    # 快捷方式可能按「短名」或「窗口标题」建的，两种都删
+    names = {short, APP_TITLE}
+    links = []
+    for nm in names:
+        links.append(os.path.join(started, nm + ".lnk"))
+        links.append(os.path.join(desktop, nm + ".lnk"))
+        links.append(os.path.join(started, "超星学习通助手", nm + ".lnk"))
+    for p in links:
+        try:
+            if os.path.exists(p):
+                os.remove(p)
+        except OSError:
+            pass
+    try:
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER,
+                         r"Software\Microsoft\Windows\CurrentVersion\Uninstall\ChaoxingHelper")
+    except OSError:
+        pass
+
+    # 先清空目录里除自己以外的文件，再由 cmd 等本进程退出后删掉自己和空目录
+    try:
+        for name in os.listdir(d):
+            p = os.path.join(d, name)
+            if os.path.abspath(p) == exe:
+                continue
+            try:
+                if os.path.isdir(p):
+                    import shutil
+                    shutil.rmtree(p, ignore_errors=True)
+                else:
+                    os.remove(p)
+            except OSError:
+                pass
+    except OSError:
+        pass
+    try:
+        subprocess.Popen(
+            'cmd /c ping -n 3 127.0.0.1 >nul & cd /d "%%TEMP%%" & '
+            'del /f /q "%s" & rd /s /q "%s"' % (exe, d),
+            shell=True, creationflags=0x08000000)
+    except Exception:
+        pass
+    if not yes:
+        messagebox.showinfo(APP_TITLE, "已卸载，程序窗口将在几秒后关闭。")
+    root.destroy()
+
+
 def main():
     _enter_app_dir()      # 内置原来 bat 里的「切换到程序目录」
+    if "--uninstall" in sys.argv:
+        _uninstall()
+        return
     if "--selftest" in sys.argv:
         idx = sys.argv.index("--selftest")
         _selftest(sys.argv[idx + 1:])
         return
     _enable_hidpi()
-    try:
-        cx_keyring.migrate_layout()   # 旧版把 CookieKey 放在根目录，这里搬进 keys/
-    except Exception:
-        pass
     root = tk.Tk()
     root.withdraw()
     if not cx_eula.accepted():
