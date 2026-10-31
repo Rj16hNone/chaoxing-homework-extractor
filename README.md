@@ -12,8 +12,8 @@
 
 | 平台 | 目录 | 下载 | 技术栈 |
 |---|---|---|---|
-| **Windows 桌面版** | [`windows/`](windows/) | `超星作业提取-安装程序.exe`（向导安装）<br>`超星作业提取.zip`（免安装） | Python 3 + tkinter |
-| **安卓版** | [`android/`](android/) | `超星作业提取.apk`（约 129 KB） | 原生 Java（Android 6.0+） |
+| **Windows 桌面版** | [`windows/`](windows/) | `Windows-Setup.exe`（向导安装）<br>`Windows-Portable.zip`（免安装） | Python 3 + tkinter |
+| **安卓版** | [`android/`](android/) | `Android.apk`（约 129 KB） | 原生 Java（Android 6.0+） |
 
 两个版本功能一致：一次扫描全部课程 → 合并作业与考试 → 三块分组 → 点一行打开对应页面。
 
@@ -24,9 +24,9 @@
 
 ## 下载与安装
 
-**Windows**：从 [Releases](../../releases) 下载 `超星作业提取-安装程序.exe`，双击按向导安装（默认装到 `%LOCALAPPDATA%\Programs\超星作业提取`，不需要管理员权限）。不想安装就用同页的 `超星作业提取.zip`，解压到有写权限的目录直接运行。
+**Windows**：从 [Releases](../../releases) 下载 `Windows-Setup.exe`，双击按向导安装（默认装到 `%LOCALAPPDATA%\Programs\超星作业提取`，不需要管理员权限）。不想安装就用同页的 `Windows-Portable.zip`，解压到有写权限的目录直接运行。
 
-**安卓**：下载 `超星作业提取.apk` 直接安装（首次需允许「安装未知来源应用」）。只申请**联网**这一个权限。
+**安卓**：下载 `Android.apk` 直接安装（首次需允许「安装未知来源应用」）。只申请**联网**这一个权限。
 
 两个版本第一次打开都会先显示许可与免责声明，同意后进入主界面（只弹一次）。
 

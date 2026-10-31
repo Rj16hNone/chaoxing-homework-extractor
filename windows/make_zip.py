@@ -4,7 +4,7 @@
 生成发布用的 zip：只用白名单，个人隐私文件永远不会被打进去。
 
 用法： python make_zip.py
-产物： 超星作业提取.zip（与脚本同目录）
+产物： Windows-Portable.zip（与脚本同目录）
 
 白名单 = exe + 源码 + 图标 + 打包脚本；
 CookieKey / .cookiekey.* / cookie/ / device/ / debug/ / *.dat / 自检日志
@@ -90,7 +90,7 @@ def collect():
 def main():
     os.chdir(HERE)
     print("=" * 52)
-    print("  生成发布包 %s.zip（仅白名单文件）" % NAME)
+    print("  生成发布包 Windows-Portable.zip（仅白名单文件）")
     print("=" * 52)
 
     if not os.path.isfile(NAME + ".exe"):
@@ -105,7 +105,7 @@ def main():
             print("   %s  <- %s" % (t, why))
         return 1
 
-    out = NAME + ".zip"
+    out = "Windows-Portable.zip"
     if os.path.exists(out):
         os.remove(out)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:

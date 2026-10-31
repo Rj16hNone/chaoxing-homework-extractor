@@ -47,7 +47,7 @@ copy /y "dist\超星作业提取.exe" "超星作业提取.exe" >nul
 
 echo [4/4] 打包安装程序...
 ".build-venv\bin\python.exe" -m PyInstaller --noconfirm --clean --onefile --noconsole ^
-  --name "超星作业提取-安装程序" --icon "assets\app.ico" ^
+  --name "Windows-Setup" --icon "assets\app.ico" ^
   --add-data "超星作业提取.exe;payload" --add-data "README.md;payload" --add-data "LICENSE;payload" ^
   --hidden-import cx_eula --distpath dist-setup --workpath build-setup installer.py
 if errorlevel 1 (
@@ -55,12 +55,12 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-copy /y "dist-setup\超星作业提取-安装程序.exe" "超星作业提取-安装程序.exe" >nul
+copy /y "dist-setup\Windows-Setup.exe" "Windows-Setup.exe" >nul
 
 echo.
 echo ============================================
 echo   完成：
 echo     免安装版：超星作业提取.exe
-echo     安装包　：超星作业提取-安装程序.exe
+echo     安装包　：Windows-Setup.exe
 echo ============================================
 pause

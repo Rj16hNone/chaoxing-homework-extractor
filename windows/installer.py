@@ -8,7 +8,7 @@
 打包（见 build_installer.bat）：
     pyinstaller --onefile --noconsole --icon assets/app.ico \
         --add-data "超星作业提取.exe;payload" --add-data "README.md;payload" \
-        --name "超星作业提取-安装程序" installer.py
+        --name "Windows-Setup" installer.py
 """
 
 import os
