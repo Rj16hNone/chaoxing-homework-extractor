@@ -17,11 +17,11 @@ import datetime
 
 EULA_VERSION = 3
 FILE_NAME = ".eula.ok"          # 程序目录里的标记
-FALLBACK_DIR = "ChaoxingHelper"  # %LOCALAPPDATA% 下的兜底目录
+FALLBACK_DIR = "Deadline"  # %LOCALAPPDATA% 下的兜底目录
 
 TITLE = "软件许可与免责声明"
 
-BODY = """超星学习通 · 未完成作业 / 考试提取
+BODY = """Deadline · 未完成作业 / 考试提取
 版本 1.0 · MIT License
 
 在使用本软件之前，请完整阅读以下条款。点击「同意并继续」表示你已阅读、理解并接受全部内容；如果不接受，请点击「退出」，软件将不会运行。

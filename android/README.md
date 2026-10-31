@@ -1,6 +1,6 @@
 # 安卓版（Android）
 
-超星学习通未完成作业 / 考试提取 —— 安卓原生实现。功能与桌面版一致：登录 → 汇总课程里的作业与考试 → 按「未完成 / 超时未交 / 已完成」三块列出。
+Deadline 未完成作业 / 考试提取 —— 安卓原生实现。功能与桌面版一致：登录 → 汇总课程里的作业与考试 → 按「未完成 / 超时未交 / 已完成」三块列出。
 
 点一行会在 **App 内置的网页视图** 里打开对应页面（不跳外部浏览器），已登录状态直接带过去，可以在里面作答、上传附件、提交；长按一行则交给系统浏览器。
 
@@ -42,7 +42,7 @@
 export JAVA_HOME=/path/to/jdk17
 export ANDROID_SDK=/path/to/android-sdk
 bash build_apk.sh
-# 产出 build/超星作业提取.apk（已 zipalign + v1/v2/v3 签名）
+# 产出 build/Android.apk（已 zipalign + v1/v2/v3 签名）
 ```
 
 脚本做的事：`aapt2 compile` → `aapt2 link` → `javac` → `R8` → `jar uf` 塞 dex → `zipalign` → `apksigner`。

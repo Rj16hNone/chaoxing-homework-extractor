@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-超星学习通 · 未完成作业 / 考试 提取（桌面版）
+Deadline · 未完成作业 / 考试 提取（桌面版）
 ================================================
 本地桌面软件（tkinter），两种使用方式：
 
@@ -30,7 +30,7 @@ import cx_keyring
 import cx_guard
 import cx_eula
 
-APP_TITLE = "超星学习通 · 未完成作业 / 考试提取"
+APP_TITLE = "Deadline · 未完成作业 / 考试提取"
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 配色
@@ -504,7 +504,7 @@ class App:
             tk.Label(head, image=logo, bg=BG).pack(side="left", padx=(0, s(14)))
         ht = tk.Frame(head, bg=BG)
         ht.pack(side="left")
-        tk.Label(ht, text="超星学习通 · 作业 / 考试提取", bg=BG, fg=INK,
+        tk.Label(ht, text="Deadline · 作业 / 考试提取", bg=BG, fg=INK,
                  font=("Microsoft YaHei UI", 15, "bold")).pack(anchor="w")
 
         # 输入卡片
@@ -1181,7 +1181,7 @@ class App:
 def _selftest(argv):
     """打包后的自检：用给定 Cookie 文件跑一次完整提取，结果写入日志。
 
-    用法： 超星作业提取.exe --selftest <cookie文件路径>
+    用法： Deadline.exe --selftest <cookie文件路径>
     """
     log_path = os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), "selftest_log.txt")
     lines = []
@@ -1281,7 +1281,7 @@ def _uninstall():
 
     exe = os.path.abspath(sys.executable if getattr(sys, "frozen", False) else __file__)
     d = os.path.dirname(exe)
-    short = os.path.splitext(os.path.basename(exe))[0]     # 例如「超星作业提取」
+    short = os.path.splitext(os.path.basename(exe))[0]     # 例如「Deadline」
     yes = "--yes" in sys.argv          # 供自动化/静默卸载使用
     root = tk.Tk()
     root.withdraw()
@@ -1296,8 +1296,10 @@ def _uninstall():
     started = os.path.join(os.environ.get("APPDATA", ""),
                            r"Microsoft\Windows\Start Menu\Programs")
     desktop = os.path.join(os.environ.get("USERPROFILE", ""), "Desktop")
-    # 快捷方式可能按「短名」或「窗口标题」建的，两种都删
-    names = {short, APP_TITLE}
+    # 快捷方式可能按「短名」或「窗口标题」建的，两种都删；
+    # 后两个是改名前的旧名，装了老版本的用户卸载时一并清掉
+    names = {short, APP_TITLE,
+             "超星作业提取", "超星学习通 · 未完成作业 / 考试提取"}
     links = []
     for nm in names:
         links.append(os.path.join(started, nm + ".lnk"))
@@ -1309,11 +1311,13 @@ def _uninstall():
                 os.remove(p)
         except OSError:
             pass
-    try:
-        winreg.DeleteKey(winreg.HKEY_CURRENT_USER,
-                         r"Software\Microsoft\Windows\CurrentVersion\Uninstall\ChaoxingHelper")
-    except OSError:
-        pass
+    for key in ("Deadline", "ChaoxingHelper"):     # 后者是改名前的旧键
+        try:
+            winreg.DeleteKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Uninstall\%s" % key)
+        except OSError:
+            pass
 
     # 先清空目录里除自己以外的文件，再由 cmd 等本进程退出后删掉自己和空目录
     try:

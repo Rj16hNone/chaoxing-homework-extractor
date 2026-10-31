@@ -15,7 +15,7 @@ import sys
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-NAME = "超星作业提取"
+NAME = "Deadline"
 
 # ---- 白名单：只有这些会被打包 ----
 FILES = [
@@ -94,7 +94,7 @@ def main():
     print("=" * 52)
 
     if not os.path.isfile(NAME + ".exe"):
-        print("[错误] 没找到 %s.exe，请先运行 build_exe.bat 打包。" % NAME)
+        print("[错误] 没找到 %s.exe，请先运行 build_installer.bat 打包。" % NAME)
         return 1
 
     targets = collect()

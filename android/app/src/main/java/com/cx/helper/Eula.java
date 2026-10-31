@@ -14,7 +14,7 @@ final class Eula {
     private static final String KEY = "eula_v";
 
     static final String BODY =
-            "超星学习通 · 未完成作业 / 考试提取（安卓版）\n"
+            "Deadline · 未完成作业 / 考试提取（安卓版）\n"
             + "版本 1.0 · MIT License\n\n"
             + "在使用本软件之前，请完整阅读以下条款。点击「同意并继续」表示你已阅读、理解并接受全部内容；"
             + "如果不接受，请点击「退出」，软件将不会运行。\n\n"

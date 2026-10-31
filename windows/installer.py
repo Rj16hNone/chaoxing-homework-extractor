@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""超星作业提取 —— Windows 安装程序（向导式）。
+"""Deadline —— Windows 安装程序（向导式）。
 
 界面：欢迎 → 许可协议 → 选择安装位置 → 安装进度 → 完成。
 安装动作：复制主程序、创建开始菜单/桌面快捷方式、写入控制面板卸载项。
@@ -7,7 +7,7 @@
 
 打包（见 build_installer.bat）：
     pyinstaller --onefile --noconsole --icon assets/app.ico \
-        --add-data "超星作业提取.exe;payload" --add-data "README.md;payload" \
+        --add-data "Deadline.exe;payload" --add-data "README.md;payload" \
         --name "Windows-Setup" installer.py
 """
 
@@ -20,10 +20,10 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-APP_NAME = "超星作业提取"
+APP_NAME = "Deadline"
 APP_VER = "1.0.0"
-PUBLISHER = "超星作业提取"
-REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\ChaoxingHelper"
+PUBLISHER = "Deadline"
+REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Deadline"
 EXE_NAME = APP_NAME + ".exe"
 
 BG = "#f5f7fb"
@@ -83,7 +83,7 @@ def _sync_shortcut(lnk, wanted, exe, workdir):
             os.makedirs(os.path.dirname(lnk), exist_ok=True)
         except OSError:
             pass
-        _ps_shortcut(lnk, exe, workdir, "%s - 学习通作业/考试提取" % APP_NAME)
+        _ps_shortcut(lnk, exe, workdir, "%s - 作业/考试时间提取" % APP_NAME)
     else:
         try:
             if os.path.exists(lnk):

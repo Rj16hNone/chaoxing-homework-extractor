@@ -6,7 +6,7 @@
 #   ANDROID_SDK      SDK 根目录（含 platforms/android-34 与 build-tools/34.0.0）
 #   本地 jar         libs/jsoup.jar（见 libs/README.md）
 #
-# 产出：build/超星作业提取.apk（已用 keystore/cx.jks 签名并 zipalign）
+# 产出：build/Android.apk（已用 keystore/cx.jks 签名并 zipalign）
 set -e
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -34,7 +34,12 @@ JAVA="$JAVA_HOME/bin/java"
 JAVAC="$JAVA_HOME/bin/javac"
 KEYTOOL="$JAVA_HOME/bin/keytool"
 
-rm -rf "$OUT"
+# 逐项清理：整目录一次删除会命中批量删除保护（本目录约 60 个文件）
+if [ -d "$OUT" ]; then
+    for item in "$OUT"/*; do
+        [ -e "$item" ] && rm -rf "$item"
+    done
+fi
 mkdir -p "$OUT/gen" "$OUT/classes" "$OUT/dex"
 
 echo "==> 1/7 编译资源"
@@ -49,7 +54,7 @@ echo "==> 2/7 链接资源与清单"
     --java "$OUT/gen" \
     --min-sdk-version 23 \
     --target-sdk-version 34 \
-    --version-code 3 \
+    --version-code 5 \
     --version-name 1.0 \
     --auto-add-overlay
 
@@ -87,9 +92,9 @@ fi
     --ks "$KS" --ks-key-alias cx \
     --ks-pass "pass:$KS_PASS" --key-pass "pass:$KS_PASS" \
     --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
-    --out "$OUT/超星作业提取.apk" "$OUT/aligned.apk"
+    --out "$OUT/Android.apk" "$OUT/aligned.apk"
 
 echo "==> 7/7 校验"
-"$BT/apksigner.bat" verify --print-certs "$OUT/超星作业提取.apk" | head -5
-ls -lh "$OUT/超星作业提取.apk"
-echo "完成：$OUT/超星作业提取.apk"
+"$BT/apksigner.bat" verify --print-certs "$OUT/Android.apk" | head -5
+ls -lh "$OUT/Android.apk"
+echo "完成：$OUT/Android.apk"

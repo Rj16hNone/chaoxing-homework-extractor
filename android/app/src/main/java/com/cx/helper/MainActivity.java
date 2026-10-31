@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
         root.setPadding(dp(16), dp(20), dp(16), dp(24));
         scroll.addView(root);
 
-        TextView title = tv("超星作业提取", 22, INK, true);
+        TextView title = tv("Deadline", 22, INK, true);
         root.addView(title);
 
         TextView sub = tv("只读取 · 不会提交 / 删除 / 作答任何作业或考试", 12, SUB, false);
@@ -671,7 +671,7 @@ public class MainActivity extends Activity {
                     .append(q(t.deadline)).append(',')
                     .append(q(t.link)).append('\n');
         }
-        String name = "超星作业_" + new SimpleDateFormat("yyyyMMdd_HHmm", Locale.CHINA).format(new Date()) + ".csv";
+        String name = "Deadline_" + new SimpleDateFormat("yyyyMMdd_HHmm", Locale.CHINA).format(new Date()) + ".csv";
         String where;
         try {
             byte[] data = sb.toString().getBytes(Charset.forName("UTF-8"));

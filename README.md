@@ -1,4 +1,6 @@
-# 超星学习通 · 未完成作业 / 考试提取
+# Deadline · 未完成作业 / 考试时间提取
+
+> 适用于超星学习通（含各校自建站点）等在线教学平台，与平台官方无关。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -24,7 +26,7 @@
 
 ## 下载与安装
 
-**Windows**：从 [Releases](../../releases) 下载 `Windows-Setup.exe`，双击按向导安装（默认装到 `%LOCALAPPDATA%\Programs\超星作业提取`，不需要管理员权限）。不想安装就用同页的 `Windows-Portable.zip`，解压到有写权限的目录直接运行。
+**Windows**：从 [Releases](../../releases) 下载 `Windows-Setup.exe`，双击按向导安装（默认装到 `%LOCALAPPDATA%\Programs\Deadline`，不需要管理员权限）。不想安装就用同页的 `Windows-Portable.zip`，解压到有写权限的目录直接运行。
 
 **安卓**：下载 `Android.apk` 直接安装（首次需允许「安装未知来源应用」）。只申请**联网**这一个权限。
 

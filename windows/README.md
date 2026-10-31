@@ -1,4 +1,4 @@
-# 超星学习通 · 未完成作业 / 考试提取（Windows 桌面版）
+# Deadline · 未完成作业 / 考试时间提取（Windows 桌面版）
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](../LICENSE)
 
@@ -44,8 +44,8 @@
 4. 选择一种登录方式，点「登录并提取」；
 5. 结果按三块列出来，点开关可以只看其中一块或两块。
 
-**卸载**：Windows「设置 → 应用」里找到「超星作业提取」点卸载；也可以运行安装目录下的
-`超星作业提取.exe --uninstall`。卸载会一并删除本机保存的登录状态。
+**卸载**：Windows「设置 → 应用」里找到「Deadline」点卸载；也可以运行安装目录下的
+`Deadline.exe --uninstall`。卸载会一并删除本机保存的登录状态。
 
 > 不想装也可以：Releases 里另有免安装的 `Windows-Portable.zip`，解压到有写权限的目录
 > （桌面、D 盘某个文件夹，别放 `C:\Program Files`）直接双击 exe 即可。
@@ -101,7 +101,7 @@ AES-128/192/256（CBC/CTR）、HMAC-SHA256、scrypt、PBKDF2 全部是**纯标�
 ## 运行时生成的文件
 
 ```
-超星作业提取.exe
+Deadline.exe
 .eula.ok               ← 「已同意首次运行声明」的标记
 cookie/session.dat     ← 加密的登录态
 ```
@@ -133,13 +133,13 @@ python app.py --selftest          # 内置自检，结果写在 selftest_log.txt
 
 1. 用 **MSYS2 的 mingw64 Python**（本机唯一带 tkinter 的解释器）创建 `.build-venv`；
 2. 安装 `requests` / `beautifulsoup4` / `pyinstaller`（走清华镜像）；
-3. PyInstaller 打包单文件主程序 `超星作业提取.exe`；
+3. PyInstaller 打包单文件主程序 `Deadline.exe`；
 4. 把主程序内嵌进 `installer.py`，产出 `Windows-Setup.exe`。
 
 安装程序（`installer.py`）是个 tkinter 向导：欢迎 → 许可协议 → 选择安装位置 → 进度 → 完成。
 它会把主程序复制到目标目录、创建开始菜单（可选桌面）快捷方式，并写一条
-`HKCU\...\Uninstall\ChaoxingHelper` 卸载项，所以「设置 → 应用」里能直接卸载。
-支持静默安装：`Windows-Setup.exe --silent --dir "D:\Apps\超星作业提取"`。
+`HKCU\...\Uninstall\Deadline` 卸载项，所以「设置 → 应用」里能直接卸载。
+支持静默安装：`Windows-Setup.exe --silent --dir "D:\Apps\Deadline"`。
 
 `make_zip.py` 另外产出一个免安装的 zip（exe + 源码）。它是**白名单**打包，带隐私闸门 ——
 一旦发现路径或文件名命中 `cookie/` / `*.dat` / `*.log` / `keys/` 之类，会**直接中止、不生成 zip**，
