@@ -188,6 +188,7 @@ public class WebAct extends Activity {
                     tvTitle.setText(t);
                 }
                 loaded = true;
+                refreshFromWeb(u);
             }
         });
 
@@ -287,6 +288,43 @@ public class WebAct extends Activity {
                 continue;
             }
             cm.setCookie(base, k + "=" + v + "; path=/");
+        }
+    }
+
+    /**
+     * 浏览过程中学习通会刷新会话 Cookie（例如续期、补 token）。页面加载完就把新值并回
+     * 加密仓库，下次「提取」用的就是最新的一份，不会因为旧 token 掉登录。
+     */
+    private void refreshFromWeb(String url) {
+        try {
+            String all = CookieManager.getInstance().getCookie(url);
+            if (all == null || all.isEmpty()) {
+                return;
+            }
+            Map<String, String> now = new LinkedHashMap<>(ck);
+            boolean dirty = false;
+            for (String kv : all.split(";")) {
+                String one = kv.trim();
+                int i = one.indexOf('=');
+                if (i <= 0) {
+                    continue;
+                }
+                String k = one.substring(0, i).trim();
+                String v = one.substring(i + 1);
+                if (k.isEmpty()) {
+                    continue;
+                }
+                String old = now.get(k);
+                if (old == null || !old.equals(v)) {
+                    now.put(k, v);
+                    dirty = true;
+                }
+            }
+            if (dirty && Store.save(this, now)) {
+                ck = now;
+            }
+        } catch (Exception ignore) {
+            // 更新失败不影响本次浏览
         }
     }
 
