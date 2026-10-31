@@ -20,7 +20,15 @@ PLATFORM="$ANDROID_SDK/platforms/android-34"
 LIBS="$HERE/libs"
 OUT="$HERE/build"
 KS="$HERE/keystore/cx.jks"
-KS_PASS="cxhelper"
+# 签名口令不进仓库：优先环境变量 CX_KS_PASS，其次本机 keystore/cx.pass
+KS_PASS="${CX_KS_PASS:-}"
+if [ -z "$KS_PASS" ] && [ -f "$HERE/keystore/cx.pass" ]; then
+    KS_PASS="$(tr -d '\r\n' < "$HERE/keystore/cx.pass")"
+fi
+if [ -z "$KS_PASS" ]; then
+    echo "[错误] 缺少签名口令：设置环境变量 CX_KS_PASS，或把口令写进 keystore/cx.pass（两者都不进仓库）" >&2
+    exit 1
+fi
 
 JAVA="$JAVA_HOME/bin/java"
 JAVAC="$JAVA_HOME/bin/javac"
@@ -73,7 +81,7 @@ if [ ! -f "$KS" ]; then
     "$KEYTOOL" -genkeypair -keystore "$KS" -alias cx -keyalg RSA -keysize 2048 \
         -validity 10000 -storepass "$KS_PASS" -keypass "$KS_PASS" \
         -dname "CN=Chaoxing Helper, OU=Personal, O=Personal, L=CN, C=CN" >/dev/null
-    echo "    已生成签名证书 keystore/cx.jks（口令 $KS_PASS，请保留，后续升级要用同一个）"
+    echo "    已生成签名证书 keystore/cx.jks（口令来自 CX_KS_PASS / keystore/cx.pass，请自行备份）"
 fi
 "$BT/apksigner.bat" sign \
     --ks "$KS" --ks-key-alias cx \

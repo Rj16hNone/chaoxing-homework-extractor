@@ -47,8 +47,11 @@ bash build_apk.sh
 
 脚本做的事：`aapt2 compile` → `aapt2 link` → `javac` → `R8` → `jar uf` 塞 dex → `zipalign` → `apksigner`。
 
-- 首次构建会自动用 `keytool` 生成 `keystore/cx.jks`（别名 `cx`，口令 `cxhelper`）。**请保留这个文件**：以后升级必须用同一张证书，否则系统会要求先卸载旧版。
-- `libs/jsoup.jar` 是唯一第三方依赖（HTML 解析，445 KB）；HTTP 部分用系统的 `HttpURLConnection`，不引入 OkHttp/okio，APK 才能压到 125 KB。
+- **签名证书与口令只在本机，不进仓库**：`keystore/cx.jks`（别名 `cx`）与 `keystore/cx.pass` 都被 `.gitignore` 排除。
+  口令的取法：环境变量 `CX_KS_PASS` 优先，其次读 `keystore/cx.pass`，两者都没有就报错退出。
+  证书缺失时首次构建会现场生成一张新证书（口令来自上面两处），但**换了证书就等于换了签名**，已装的旧版必须先卸载才能升级 —— 所以务必备份 `cx.jks` 与口令。
+- 为什么不能把证书公开：任何人拿到它都能用同一个包名签一个「更新包」，覆盖安装在你的手机上、以同一个 UID 运行并读出 Keystore 里能解开的登录态。自己编译请用你自己的证书。
+- `libs/jsoup.jar` 是唯一第三方依赖（HTML 解析，445 KB）；HTTP 部分用系统的 `HttpURLConnection`，不引入 OkHttp/okio，APK 才能压到 129 KB。
 
 ## 目录
 
