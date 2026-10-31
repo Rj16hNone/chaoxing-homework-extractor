@@ -1,13 +1,17 @@
 # 安卓版（Android）
 
-超星学习通未完成作业 / 考试提取 —— 安卓原生实现。功能与桌面版一致：登录 → 汇总课程里的作业与考试 → 按「未完成 / 超时未交 / 已完成」三块列出，点一行用浏览器打开对应页面。**只读取，不提交、不删除、不作答。**
+超星学习通未完成作业 / 考试提取 —— 安卓原生实现。功能与桌面版一致：登录 → 汇总课程里的作业与考试 → 按「未完成 / 超时未交 / 已完成」三块列出。
+
+点一行会在 **App 内置的网页视图** 里打开对应页面（不跳外部浏览器），已登录状态直接带过去，可以在里面作答、上传附件、提交；长按一行则交给系统浏览器。
+
+**软件自身只读**：不会自动提交、不会代考、不会改学习通上的任何数据，页面里的操作全部由你本人手动完成。
 
 ## 与桌面版的差别
 
 | | 桌面版（Windows） | 安卓版 |
 |---|---|---|
 | 语言 / 运行时 | Python 3 + tkinter | Java + 系统框架（无 AndroidX、无 Kotlin 依赖） |
-| 体积 | 安装包 29.7 MB | APK 约 125 KB |
+| 体积 | 安装包 29.7 MB | APK 约 129 KB |
 | 硬件门 | 无（本机绑定加密） | **无**，装好即用，无任何解锁界面 |
 | 登录态加密 | AES-256-CTR + HMAC-SHA256，密钥由本机指纹派生 | **Android Keystore 双层**：不可导出的 KEK 包裹随机 DEK，DEK 再加密登录态 |
 | 混淆 | PyInstaller 打包 | R8 全量重命名 + 压平包名 + 字符串异或编码 |
@@ -24,8 +28,8 @@
 
 **2. 混淆**
 
-- `minifyEnabled`（R8 `--release`）+ `-repackageclasses ''` + `-allowaccessmodification`：除入口 `MainActivity` 外，194 个类全部改名并压平到默认包（`a`、`b2`、`c0`…）；
-- 域名/接口路径不写成明面常量：`tools/gen_const.py` 把 27 条 URL 与 UA 异或后 Base64 存进 `C.java`，运行时才还原；dex 里 `grep chaoxing` 为空；
+- `minifyEnabled`（R8 `--release`）+ `-repackageclasses ''` + `-allowaccessmodification`：除入口 `MainActivity` 与 `WebAct` 外，其余 197 个类全部改名并压平到默认包（`a`、`b2`、`c0`…）；
+- 域名/接口路径不写成明面常量：`tools/gen_const.py` 把 28 条 URL / UA / 域名表异或后 Base64 存进 `C.java`，运行时才还原；dex 里 `grep chaoxing` 为空；
 - 登录字段用 AES-128-CBC 封装（密钥由 4 段碎片在运行时拼出，源码里没有连续密钥），与网页端算法一致；
 - 不保留 `BuildConfig.DEBUG` 分支，不打日志。
 
@@ -43,7 +47,7 @@ bash build_apk.sh
 
 脚本做的事：`aapt2 compile` → `aapt2 link` → `javac` → `R8` → `jar uf` 塞 dex → `zipalign` → `apksigner`。
 
-- 签名证书 `keystore/cx.jks` 已随仓库提供（别名 `cx`，口令 `cxhelper`），这样后续版本能覆盖安装、不被系统要求先卸载。**如果你想自己掌控签名**：删掉该文件再跑一次脚本，会重新生成一张；但换了证书就等于换了应用身份，旧版必须先卸载。打算发布给别人用时，请务必换成自己的证书并把它从仓库里移除。
+- 首次构建会自动用 `keytool` 生成 `keystore/cx.jks`（别名 `cx`，口令 `cxhelper`）。**请保留这个文件**：以后升级必须用同一张证书，否则系统会要求先卸载旧版。
 - `libs/jsoup.jar` 是唯一第三方依赖（HTML 解析，445 KB）；HTTP 部分用系统的 `HttpURLConnection`，不引入 OkHttp/okio，APK 才能压到 125 KB。
 
 ## 目录
@@ -55,6 +59,7 @@ android/
 │   │   ├── AndroidManifest.xml
 │   │   ├── java/com/cx/helper/
 │   │   │   ├── MainActivity.java   界面、三块筛选、导出 CSV
+│   │   │   ├── WebAct.java         内置网页视图（同步登录态、作答/上传/提交、随退随清）
 │   │   │   ├── Api.java            登录 / 课程 / 作业 / 考试（多入口并集）
 │   │   │   ├── Parse.java          时间、剩余时长、Cookie 归一化
 │   │   │   ├── Tasks.java          数据模型与三块归属
@@ -73,6 +78,8 @@ android/
 ## 已知限制
 
 - 图形验证码账号仍需在电脑上用「Cookie 导入」：安卓端同样支持粘贴 Cookie（JSON 数组 / JSON 对象 / `name=value;` 都认）。
+- 内置网页视图用的是桌面 UA（作业/考试页的电脑版模板才带完整作答与提交入口），手机上文字偏小，可双指缩放。
+- 若某页在 WebView 里渲染异常，长按该行可用系统浏览器打开（此时需要浏览器自己已登录）。
 - 未做指纹解锁与后台定时刷新（按「不做任何门」的要求，打开即用）。
 - 未接 NDK：加密与签名校验都在 Java 层，R8 混淆已生效；如需把签名校验下沉到 native，需要再加 NDK 工具链。
-- 本环境无安卓设备/模拟器，未做真机跑通验证；静态检查为：`aapt2 dump badging` 正常、`apksigner verify` 通过、dex 类名已混淆、无明文域名。
+- 本环境无安卓设备/模拟器，未做真机跑通验证；静态检查为：`aapt2 dump badging` 正常、`apksigner verify` 通过、清单含两个 Activity、dex 类名已混淆、无明文域名。

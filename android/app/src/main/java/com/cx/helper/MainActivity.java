@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ContentValues;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -50,6 +51,9 @@ public class MainActivity extends Activity {
     private static final int C_OPEN = 0xFFF0912A;
     private static final int C_OVER = 0xFFD9363E;
     private static final int C_DONE = 0xFF2FA860;
+
+    /** 打开内置网页视图的请求码。 */
+    private static final int REQ_WEB = 0x42;
 
     private final ExecutorService exec = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -526,6 +530,13 @@ public class MainActivity extends Activity {
                 openLink(t.link);
             }
         });
+        outer.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                openExternal(t.link);
+                return true;
+            }
+        });
         return outer;
     }
 
@@ -604,10 +615,38 @@ public class MainActivity extends Activity {
             return;
         }
         try {
-            startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(link)));
+            Intent i = new Intent(this, WebAct.class);
+            i.putExtra("url", link);
+            startActivityForResult(i, REQ_WEB);
+        } catch (Exception e) {
+            toast("内置视图打不开，改用系统浏览器");
+            openExternal(link);
+        }
+    }
+
+    /** 长按一行：用系统浏览器打开（内置视图渲染异常时的兜底）。 */
+    private void openExternal(String link) {
+        if (link == null || link.isEmpty()) {
+            toast("这一条没有可打开的链接");
+            return;
+        }
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(link)));
         } catch (Exception e) {
             toast("没有可用的浏览器");
         }
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        if (req == REQ_WEB) {
+            boolean loaded = data != null && data.getBooleanExtra("loaded", false);
+            if (loaded && !all.isEmpty()) {
+                setStatus("回到列表。想刷新状态就点「提取」。", SUB);
+            }
+            return;
+        }
+        super.onActivityResult(req, res, data);
     }
 
     // ------------------------------------------------------------------ 导出

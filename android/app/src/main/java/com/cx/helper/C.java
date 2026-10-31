@@ -32,4 +32,5 @@ final class C {
     static final String MOOC1_HOST = Str.d("EezDpoYuHH0c/8Ct3CJIIgjn36+LYw0hDu0=", 121);
     static final String REFER_ENC = Str.d("ZF8+Ga2Uh8A2ZWdTxvaQvpR6VSER+dH7l3xf", 12);
     static final String MOOC_ANS = Str.d("clEyH7bbt4s=", 31);
+    static final String CK_HOSTS = Str.d("UTkR4NakgmwEKgfqirKTdAwiCB7xxbWVfRc7GPuZvd1xWTEA9sSijCRKJwqqzOqObU4jcR313bSCcFYwWPbbvt58XyANo8+ji2ZQLgjiiqCNbAxSMRL/ivSacFY5Df3dtd9zQCNB4cSlijkKd0vny6OOeHZQOlL41bTUelk6F6Kf495sRiwD88OnjylFKgmvz66PnCwTPxP71qCeeFJ6EP3c/IJhQi9Zp8imlChGLALt2amxmTNfNBe11biZdhkyHOKerIZsQzMD58/phWpJbw/uz9zv0H1LM1f737eabFo8Fr7MoYAgWysa+9epl3ARbALo/tGllXVddxv42/mHYF1/E+fPopRiRC5G5Mmo", 50);
 }

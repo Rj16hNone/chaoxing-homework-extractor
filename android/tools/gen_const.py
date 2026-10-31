@@ -36,6 +36,12 @@ ITEMS = [
     ("MOOC1_HOST", "https://mooc1.chaoxing.com"),
     ("REFER_ENC", "http%3A%2F%2Fi.chaoxing.com"),
     ("MOOC_ANS", "mooc-ans"),
+    # 内置网页视图需要预置 Cookie 的域名（逗号分隔，运行时 split）
+    ("CK_HOSTS", "chaoxing.com,www.chaoxing.com,i.chaoxing.com,i.mooc.chaoxing.com,"
+                 "mooc.chaoxing.com,mooc1.chaoxing.com,mooc1-1.chaoxing.com,"
+                 "mooc1-2.chaoxing.com,mooc2.chaoxing.com,mooc2-ans.chaoxing.com,"
+                 "mooc-ans.chaoxing.com,mooc1-api.chaoxing.com,"
+                 "passport2.chaoxing.com,sso.chaoxing.com"),
 ]
 
 

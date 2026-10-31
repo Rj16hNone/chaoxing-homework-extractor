@@ -41,8 +41,8 @@ echo "==> 2/7 链接资源与清单"
     --java "$OUT/gen" \
     --min-sdk-version 23 \
     --target-sdk-version 34 \
-    --version-code 1 \
-    --version-name 1.0 \
+    --version-code 2 \
+    --version-name 1.1 \
     --auto-add-overlay
 
 echo "==> 3/7 编译 Java"
