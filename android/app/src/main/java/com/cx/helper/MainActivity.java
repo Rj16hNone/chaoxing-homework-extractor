@@ -348,7 +348,9 @@ public class MainActivity extends Activity {
             public void run() {
                 try {
                     Api api = new Api(ck);
-                    Store.save(MainActivity.this, api.cookies());
+                    if (Store.save(MainActivity.this, api.cookies())) {
+                        saved = api.cookies();
+                    }
                     finishExtract(api);
                 } catch (Exception e) {
                     fail(e);
